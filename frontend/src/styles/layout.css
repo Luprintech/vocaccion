@@ -1,0 +1,117 @@
+/* Layout personalizado para sidebar que ocupa toda la altura */
+.layout-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content-area {
+  flex: 1;
+  display: flex;
+  position: relative;
+}
+
+.sidebar-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 15rem; /* 240px / w-60 */
+  min-height: 100vh;
+  height: auto; /* Permitir que crezca según el contenido */
+  z-index: 40;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf4 100%);
+  border-right: 1px solid #a7f3d0;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.content-with-sidebar {
+  margin-left: 15rem; /* 240px / ml-60 */
+  min-height: 100vh;
+  width: calc(100% - 15rem);
+  transition: margin-left 0.3s ease-in-out;
+}
+
+.content-without-sidebar {
+  margin-left: 0;
+  width: 100%;
+  min-height: 100vh;
+  transition: margin-left 0.3s ease-in-out;
+}
+
+/* Estilos responsivos para móvil */
+@media (max-width: 1024px) {
+  .content-with-sidebar {
+    margin-left: 0;
+    width: 100%;
+  }
+  
+  .sidebar-mobile-hidden {
+    transform: translateX(-100%);
+  }
+  
+  .sidebar-mobile-visible {
+    transform: translateX(0);
+  }
+}
+
+/* Overlay para móvil */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 30;
+}
+
+/* Asegurar que el body y html tengan altura completa */
+html, body, #root {
+  min-height: 100vh;
+  height: auto;
+}
+
+/* Smooth scrolling para toda la página */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Estilos para navegación del sidebar */
+.sidebar-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: #374151;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease-in-out;
+  text-decoration: none;
+}
+
+.sidebar-nav-link:hover {
+  background-color: #d1fae5;
+  color: #047857;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-nav-icon {
+  color: #10b981;
+  transition: color 0.2s ease-in-out;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-link:hover .sidebar-nav-icon {
+  color: #047857;
+}
+
+/* Animaciones suaves */
+.sidebar-transition {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Para páginas con mucho contenido, asegurar que el sidebar se extienda */
+.page-container {
+  min-height: calc(100vh - 120px); /* Ajustar según altura del header y footer */
+}
