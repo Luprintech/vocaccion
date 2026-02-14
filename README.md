@@ -132,14 +132,6 @@ Asegurarse de:
 - Ejecutar `php artisan route:cache`
 - Configurar permisos adecuados para `storage/` y `bootstrap/cache/`
 
-## Equipo de Desarrollo
-
-- Francisco Jurado Bueno
-- Guadalupe Cano Moyano
-- Eduardo Ruz López
-- Manuel Gómez Ruiz
-- Jaime Grueso Martín
-
 ## Contexto Académico
 
 Este proyecto ha sido desarrollado como parte del Módulo de Proyecto Integrado del Ciclo Formativo de Grado Superior en Desarrollo de Aplicaciones Web (DAW) del IES Gran Capitán, Córdoba, España.
@@ -151,3 +143,4 @@ Curso académico: 2025-2026
 Este proyecto ha sido desarrollado con fines educativos como parte del currículo del Ciclo Formativo DAW del IES Gran Capitán.
 
 Todos los derechos reservados al equipo de desarrollo y al IES Gran Capitán.
+
