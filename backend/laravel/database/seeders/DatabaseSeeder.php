@@ -41,15 +41,14 @@ class DatabaseSeeder extends Seeder
         $this->call(PlanesSeeder::class);
 
         // ==========================================
-        // 3. CREAR USUARIOS (ANTES DE LAS GUÍAS)
+        // 3. CREAR O ACTUALIZAR USUARIOS (ANTES DE LAS GUÍAS)
         // ==========================================
-        echo "\nCreando usuarios...\n";
+        echo "\nCreando o actualizando usuarios...\n";
 
-        $admin = Usuario::firstOrCreate(
+        $admin = Usuario::updateOrCreate(
         ['email' => 'admin@vocaccion.com'],
         [
             'nombre' => 'Admin VocAcción',
-            'email' => 'admin@vocaccion.com',
             'password' => Hash::make($passwordAdmin),
             'email_verified_at' => now(),
         ]
@@ -59,16 +58,15 @@ class DatabaseSeeder extends Seeder
         if (!$admin->roles()->where('rol_id', 1)->exists()) {
             $admin->roles()->attach(1);
         }
-        echo "   Admin creado: admin@vocaccion.com / $passwordAdmin\n";
+        echo "   Admin actualizado: admin@vocaccion.com / $passwordAdmin\n";
 
         // ==========================================
-        // 4. CREAR USUARIO ORIENTADOR
+        // 4. CREAR O ACTUALIZAR USUARIO ORIENTADOR
         // ==========================================
-        $orientador = Usuario::firstOrCreate(
+        $orientador = Usuario::updateOrCreate(
         ['email' => 'orientador@vocaccion.com'],
         [
             'nombre' => 'Carlos García - Orientador',
-            'email' => 'orientador@vocaccion.com',
             'password' => Hash::make($passwordOrientador),
             'email_verified_at' => now(),
         ]
@@ -78,7 +76,7 @@ class DatabaseSeeder extends Seeder
         if (!$orientador->roles()->where('rol_id', 2)->exists()) {
             $orientador->roles()->attach(2);
         }
-        echo "   Orientador creado: orientador@vocaccion.com / $passwordOrientador\n";
+        echo "   Orientador actualizado: orientador@vocaccion.com / $passwordOrientador\n";
 
 
 

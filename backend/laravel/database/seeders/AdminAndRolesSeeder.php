@@ -32,20 +32,18 @@ class AdminAndRolesSeeder extends Seeder
         // ==========================================
         // 1. ADMINISTRADOR
         // ==========================================
-        $admin = Usuario::where('email', 'admin@vocaccion.com')->first();
-
-        if (!$admin) {
-            $admin = Usuario::create([
-                'nombre' => 'Admin VocAcción',
-                'email' => 'admin@vocaccion.com',
-                'password' => Hash::make($passwordAdmin),
-                'email_verified_at' => now(),
-            ]);
-            echo " Administrador creado: admin@vocaccion.com / $passwordAdmin\n";
-        }
-        else {
-            echo " Administrador ya existe: admin@vocaccion.com\n";
-        }
+        // ==========================================
+        // 1. ADMINISTRADOR
+        // ==========================================
+        $admin = Usuario::updateOrCreate(
+        ['email' => 'admin@vocaccion.com'],
+        [
+            'nombre' => 'Admin VocAcción',
+            'password' => Hash::make($passwordAdmin),
+            'email_verified_at' => now(),
+        ]
+        );
+        echo "   Admin actualizado: admin@vocaccion.com / $passwordAdmin\n";
 
         // Asignar rol si no lo tiene
         if (!$admin->roles()->where('rol_id', 1)->exists()) {
@@ -55,20 +53,18 @@ class AdminAndRolesSeeder extends Seeder
         // ==========================================
         // 2. ORIENTADOR
         // ==========================================
-        $orientador = Usuario::where('email', 'carlos@vocaccion.com')->first();
-
-        if (!$orientador) {
-            $orientador = Usuario::create([
-                'nombre' => 'Carlos García - Orientador',
-                'email' => 'carlos@vocaccion.com',
-                'password' => Hash::make($passwordOrientador),
-                'email_verified_at' => now(),
-            ]);
-            echo " Orientador creado: carlos@vocaccion.com / $passwordOrientador\n";
-        }
-        else {
-            echo " Orientador ya existe: carlos@vocaccion.com\n";
-        }
+        // ==========================================
+        // 2. ORIENTADOR
+        // ==========================================
+        $orientador = Usuario::updateOrCreate(
+        ['email' => 'carlos@vocaccion.com'],
+        [
+            'nombre' => 'Carlos García - Orientador',
+            'password' => Hash::make($passwordOrientador),
+            'email_verified_at' => now(),
+        ]
+        );
+        echo "   Orientador actualizado: carlos@vocaccion.com / $passwordOrientador\n";
 
         // Asignar rol si no lo tiene
         if (!$orientador->roles()->where('rol_id', 2)->exists()) {
