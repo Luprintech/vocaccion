@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Users, UserPlus, BarChart3, ChevronRight, TrendingUp, Shield, Sparkles } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContextFixed';
 import { API_URL } from '../../api';
 import HeaderAdmin from '../../components/HeaderAdmin';
@@ -109,24 +109,24 @@ function AdminDashboard() {
 
   if (loading) {
     return (
-      <>
+      <div className="min-h-screen bg-slate-50 flex flex-col">
         <HeaderAdmin />
-        <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="grow flex items-center justify-center">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-slate-200 border-t-slate-700"></div>
             <p className="mt-4 text-gray-600 font-medium">Cargando panel administrativo...</p>
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <>
+      <div className="min-h-screen bg-slate-50 flex flex-col">
         <HeaderAdmin />
-        <div className="min-h-screen bg-white p-8 flex items-center justify-center">
-          <div className="rounded-xl bg-red-50 border border-red-200 p-6 max-w-md">
+        <div className="grow flex items-center justify-center p-8">
+          <div className="rounded-xl bg-red-50 border border-red-200 p-6 max-w-md w-full">
             <h3 className="text-lg font-bold text-red-900 mb-2">Error al cargar</h3>
             <p className="text-red-800 mb-4">{error}</p>
             <button
@@ -137,7 +137,7 @@ function AdminDashboard() {
             </button>
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
@@ -303,10 +303,10 @@ function AdminDashboard() {
               {widgets.map((widget, index) => {
                 const Icon = widget.icon;
                 return (
-                  <a
-                    key={index}
-                    href={widget.link}
-                    className="group bg-white rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 cursor-pointer"
+                  <Link
+                    key={widget.title}
+                    to={widget.link}
+                    className="group bg-white rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 cursor-pointer text-decoration-none"
                   >
                     {/* Icono */}
                     <div className={`w-14 h-14 rounded-xl bg-linear-to-br ${widget.gradient} flex items-center justify-center mb-5 group-hover:scale-110 transition-transform duration-300`}>
@@ -335,7 +335,7 @@ function AdminDashboard() {
                       <span>{widget.label}</span>
                       <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                     </div>
-                  </a>
+                  </Link>
                 );
               })}
             </div>

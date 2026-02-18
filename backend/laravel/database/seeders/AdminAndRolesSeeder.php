@@ -6,6 +6,7 @@ use Illuminate\Database\Seeder;
 use App\Models\Usuario;
 use App\Models\Rol;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class AdminAndRolesSeeder extends Seeder
 {
@@ -21,23 +22,29 @@ class AdminAndRolesSeeder extends Seeder
      */
     public function run(): void
     {
-        echo "\n📋 Creando usuarios de prueba...\n";
+        echo "\n Creando usuarios de prueba...\n";
+
+        // LEER CONTRASEÑAS DESDE .ENV O GENERAR ALEATORIAS
+        $passwordAdmin = env('SEEDER_ADMIN_PASSWORD') ?: Str::random(16);
+        $passwordOrientador = env('SEEDER_ORIENTADOR_PASSWORD') ?: Str::random(16);
+
 
         // ==========================================
         // 1. ADMINISTRADOR
         // ==========================================
         $admin = Usuario::where('email', 'admin@vocaccion.com')->first();
-        
+
         if (!$admin) {
             $admin = Usuario::create([
                 'nombre' => 'Admin VocAcción',
                 'email' => 'admin@vocaccion.com',
-                'password' => Hash::make('admin123'),
+                'password' => Hash::make($passwordAdmin),
                 'email_verified_at' => now(),
             ]);
-            echo "✅ Administrador creado: admin@vocaccion.com / admin123\n";
-        } else {
-            echo "⚠️  Administrador ya existe: admin@vocaccion.com\n";
+            echo " Administrador creado: admin@vocaccion.com / $passwordAdmin\n";
+        }
+        else {
+            echo " Administrador ya existe: admin@vocaccion.com\n";
         }
 
         // Asignar rol si no lo tiene
@@ -49,17 +56,18 @@ class AdminAndRolesSeeder extends Seeder
         // 2. ORIENTADOR
         // ==========================================
         $orientador = Usuario::where('email', 'carlos@vocaccion.com')->first();
-        
+
         if (!$orientador) {
             $orientador = Usuario::create([
                 'nombre' => 'Carlos García - Orientador',
                 'email' => 'carlos@vocaccion.com',
-                'password' => Hash::make('carlos123'),
+                'password' => Hash::make($passwordOrientador),
                 'email_verified_at' => now(),
             ]);
-            echo "✅ Orientador creado: carlos@vocaccion.com / carlos123\n";
-        } else {
-            echo "⚠️  Orientador ya existe: carlos@vocaccion.com\n";
+            echo " Orientador creado: carlos@vocaccion.com / $passwordOrientador\n";
+        }
+        else {
+            echo " Orientador ya existe: carlos@vocaccion.com\n";
         }
 
         // Asignar rol si no lo tiene
@@ -67,33 +75,12 @@ class AdminAndRolesSeeder extends Seeder
             $orientador->roles()->attach(2);
         }
 
-        // ==========================================
-        // 3. ESTUDIANTE
-        // ==========================================
-        $estudiante = Usuario::where('email', 'juan@vocaccion.com')->first();
-        
-        if (!$estudiante) {
-            $estudiante = Usuario::create([
-                'nombre' => 'Juan Pérez - Estudiante',
-                'email' => 'juan@vocaccion.com',
-                'password' => Hash::make('juan123'),
-                'email_verified_at' => now(),
-            ]);
-            echo "✅ Estudiante creado: juan@vocaccion.com / juan123\n";
-        } else {
-            echo "⚠️  Estudiante ya existe: juan@vocaccion.com\n";
-        }
 
-        // Asignar rol si no lo tiene
-        if (!$estudiante->roles()->where('rol_id', 3)->exists()) {
-            $estudiante->roles()->attach(3);
-        }
 
-        echo "\n🎉 Todos los usuarios de prueba están listos!\n";
-        echo "\n📝 Credenciales de prueba:\n";
-        echo "   Administrador: admin@vocaccion.com / admin123\n";
-        echo "   Orientador:    carlos@vocaccion.com / carlos123\n";
-        echo "   Estudiante:    juan@vocaccion.com / juan123\n";
+        echo "\n Todos los usuarios de prueba están listos!\n";
+        echo "\n Credenciales de prueba:\n";
+        echo "   Administrador: admin@vocaccion.com / $passwordAdmin\n";
+        echo "   Orientador:    carlos@vocaccion.com / $passwordOrientador\n";
         echo "\n";
     }
 }

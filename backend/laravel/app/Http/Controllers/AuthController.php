@@ -73,6 +73,8 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
+
+
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
@@ -131,7 +133,7 @@ class AuthController extends Controller
             ? asset('storage/' . $usuario->profile_image)
             : null;
 
-        Log::info('📸 GET /api/profile', [
+        Log::info(' GET /api/profile', [
             'usuario_id' => $usuario->id,
             'profile_image_db' => $usuario->profile_image,
             'profile_image_url' => $profileImageUrl
@@ -140,14 +142,14 @@ class AuthController extends Controller
         if ($perfil) {
             $perfilCompleto = $perfil->load([
                 'formaciones' => function ($query) {
-                    $query->orderBy('fecha_inicio', 'desc');
-                },
+                $query->orderBy('fecha_inicio', 'desc');
+            },
                 'experiencias' => function ($query) {
-                    $query->orderBy('fecha_inicio', 'desc');
-                },
+                $query->orderBy('fecha_inicio', 'desc');
+            },
                 'idiomas' => function ($query) {
-                    $query->orderBy('idioma', 'asc');
-                },
+                $query->orderBy('idioma', 'asc');
+            },
                 'habilidades',
                 'intereses'
             ]);
@@ -234,25 +236,28 @@ class AuthController extends Controller
                         'message' => 'Imagen de perfil actualizada correctamente',
                         'usuario' => $usuario->fresh()->load('perfil'),
                         'profile_image' => $usuario->profile_image
-                            ? asset('storage/' . $usuario->profile_image)
-                            : null
+                        ? asset('storage/' . $usuario->profile_image)
+                        : null
                     ]);
                 }
-            } catch (\Illuminate\Validation\ValidationException $e) {
+            }
+            catch (\Illuminate\Validation\ValidationException $e) {
                 Log::error('❌ Error validando imagen', ['errors' => $e->errors()]);
                 return response()->json([
                     'success' => false,
                     'error' => 'Error al validar la imagen',
                     'details' => $e->errors()
                 ], 422);
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 Log::error('❌ Error guardando imagen', ['message' => $e->getMessage()]);
                 return response()->json([
                     'success' => false,
                     'error' => 'Error al guardar la imagen: ' . $e->getMessage()
                 ], 500);
             }
-        } else {
+        }
+        else {
             // Si no hay imagen, los datos vienen directamente en el request
             $requestData = $request->all();
         }
@@ -263,7 +268,7 @@ class AuthController extends Controller
         // Si SOLO se está subiendo imagen, no validar ni actualizar datos personales
         $soloImagen = $request->hasFile('profile_image') &&
             (!isset($requestData['informacion_personal']) ||
-                empty(array_filter($requestData['informacion_personal'] ?? [])));
+            empty(array_filter($requestData['informacion_personal'] ?? [])));
 
         if ($soloImagen) {
             // Solo se subió imagen, ya se guardó arriba, retornamos éxito
@@ -302,7 +307,8 @@ class AuthController extends Controller
                 // Eliminar formaciones que YA NO están en el frontend (fueron borradas)
                 if (!empty($formacionIdsEnviados)) {
                     $perfil->formaciones()->whereNotIn('id', $formacionIdsEnviados)->delete();
-                } else {
+                }
+                else {
                     // Si no hay IDs (todo es nuevo), borrar todas las formaciones antiguas
                     $perfil->formaciones()->delete();
                 }
@@ -310,10 +316,10 @@ class AuthController extends Controller
                 foreach ($requestData['formacion'] as $formacionData) {
                     //  Validar campos obligatorios
                     if (
-                        empty($formacionData['nivel']) ||
-                        empty($formacionData['centro_estudios']) ||
-                        empty($formacionData['titulo_obtenido']) ||
-                        empty($formacionData['fecha_inicio'])
+                    empty($formacionData['nivel']) ||
+                    empty($formacionData['centro_estudios']) ||
+                    empty($formacionData['titulo_obtenido']) ||
+                    empty($formacionData['fecha_inicio'])
                     ) {
                         return response()->json([
                             'error' => 'Por favor completa todos los campos obligatorios en Formación.'
@@ -323,14 +329,16 @@ class AuthController extends Controller
                     // Si tiene ID, actualizar; si no, crear nuevo
                     if (!empty($formacionData['id'])) {
                         $perfil->formaciones()->updateOrCreate(
-                            ['id' => $formacionData['id']],
+                        ['id' => $formacionData['id']],
                             $formacionData
                         );
-                    } else {
+                    }
+                    else {
                         $perfil->formaciones()->create($formacionData);
                     }
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 return response()->json([
                     'error' => 'Error al procesar las formaciones: ' . $e->getMessage()
                 ], 500);
@@ -346,16 +354,17 @@ class AuthController extends Controller
                 // Eliminar experiencias que YA NO están
                 if (!empty($experienciaIdsEnviados)) {
                     $perfil->experiencias()->whereNotIn('id', $experienciaIdsEnviados)->delete();
-                } else {
+                }
+                else {
                     $perfil->experiencias()->delete();
                 }
 
                 foreach ($requestData['experiencia_laboral'] as $experienciaData) {
                     //  Validar campos obligatorios
                     if (
-                        empty($experienciaData['puesto']) ||
-                        empty($experienciaData['empresa']) ||
-                        empty($experienciaData['fecha_inicio'])
+                    empty($experienciaData['puesto']) ||
+                    empty($experienciaData['empresa']) ||
+                    empty($experienciaData['fecha_inicio'])
                     ) {
                         return response()->json([
                             'error' => 'Por favor completa todos los campos obligatorios en Experiencia Laboral.'
@@ -365,14 +374,16 @@ class AuthController extends Controller
                     // Si tiene ID, actualizar; si no, crear
                     if (!empty($experienciaData['id'])) {
                         $perfil->experiencias()->updateOrCreate(
-                            ['id' => $experienciaData['id']],
+                        ['id' => $experienciaData['id']],
                             $experienciaData
                         );
-                    } else {
+                    }
+                    else {
                         $perfil->experiencias()->create($experienciaData);
                     }
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 return response()->json([
                     'error' => 'Error al procesar las experiencias: ' . $e->getMessage()
                 ], 500);
@@ -388,7 +399,8 @@ class AuthController extends Controller
                 // Eliminar idiomas que YA NO están
                 if (!empty($idiomaIdsEnviados)) {
                     $perfil->idiomas()->whereNotIn('id', $idiomaIdsEnviados)->delete();
-                } else {
+                }
+                else {
                     $perfil->idiomas()->delete();
                 }
 
@@ -403,14 +415,16 @@ class AuthController extends Controller
                     // Si tiene ID, actualizar; si no, crear
                     if (!empty($idiomaData['id'])) {
                         $perfil->idiomas()->updateOrCreate(
-                            ['id' => $idiomaData['id']],
+                        ['id' => $idiomaData['id']],
                             $idiomaData
                         );
-                    } else {
+                    }
+                    else {
                         $perfil->idiomas()->create($idiomaData);
                     }
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 return response()->json([
                     'error' => 'Error al procesar los idiomas: ' . $e->getMessage()
                 ], 500);
@@ -448,8 +462,8 @@ class AuthController extends Controller
             'message' => 'Perfil actualizado correctamente.',
             'perfil' => $perfil->getPerfilCompleto(),
             'profile_image' => $usuario->profile_image
-                ? asset('storage/' . $usuario->profile_image)
-                : null
+            ? asset('storage/' . $usuario->profile_image)
+            : null
         ], 200);
     }
 
@@ -475,7 +489,7 @@ class AuthController extends Controller
         }
 
         // Verificar que el hash coincide
-        if (!hash_equals((string) $request->route('hash'), sha1($usuario->getEmailForVerification()))) {
+        if (!hash_equals((string)$request->route('hash'), sha1($usuario->getEmailForVerification()))) {
             // Redirigir al frontend con error
             return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/login?error=invalid_hash');
         }
