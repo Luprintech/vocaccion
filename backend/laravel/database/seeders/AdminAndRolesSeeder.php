@@ -28,10 +28,6 @@ class AdminAndRolesSeeder extends Seeder
         $passwordAdmin = env('SEEDER_ADMIN_PASSWORD') ?: Str::random(16);
         $passwordOrientador = env('SEEDER_ORIENTADOR_PASSWORD') ?: Str::random(16);
 
-
-        // ==========================================
-        // 1. ADMINISTRADOR
-        // ==========================================
         // ==========================================
         // 1. ADMINISTRADOR
         // ==========================================
