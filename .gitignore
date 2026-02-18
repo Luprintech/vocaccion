@@ -1,5 +1,8 @@
 # Root ignore
 
+# Dependencies
+backend/laravel/vendor/
+
 # OS
 .DS_Store
 Thumbs.db
