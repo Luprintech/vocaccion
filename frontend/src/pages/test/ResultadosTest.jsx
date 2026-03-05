@@ -27,19 +27,72 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Sparkles, Star, Lightbulb } from 'lucide-react';
+import { Sparkles, Star, Lightbulb, Download, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { getUserResults, saveObjetivoProfesional, getObjetivoProfesional, deleteObjetivoProfesional, generateImageForProfession } from '../../api';
 import { useToast } from '@/components/ToastProvider';
 import ProfesionCard from '@/components/ProfesionCard';
 import PantallaEsperaResultados from '@/components/PantallaEsperaResultados';
 
+// Renderiza Markdown básico a JSX sin dependencias externas
+function renderMarkdown(text) {
+  if (!text) return null;
+
+  const renderInline = (str) => {
+    const parts = str.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, i) =>
+      part.startsWith('**') && part.endsWith('**')
+        ? <strong key={i}>{part.slice(2, -2)}</strong>
+        : part
+    );
+  };
+
+  const lines = text.split('\n');
+  const elements = [];
+  let listBuffer = [];
+
+  const flushList = () => {
+    if (listBuffer.length === 0) return;
+    elements.push(
+      <ul key={`ul-${elements.length}`} className="list-disc pl-5 space-y-1 text-gray-700 mb-3">
+        {listBuffer.map((item, i) => <li key={i}>{renderInline(item)}</li>)}
+      </ul>
+    );
+    listBuffer = [];
+  };
+
+  lines.forEach((line, i) => {
+    if (line.startsWith('# ')) {
+      flushList();
+      elements.push(<h2 key={i} className="text-xl font-bold text-gray-900 mt-6 mb-2 pb-1 border-b border-purple-100">{renderInline(line.slice(2))}</h2>);
+    } else if (line.startsWith('## ')) {
+      flushList();
+      elements.push(<h3 key={i} className="text-lg font-semibold text-purple-700 mt-4 mb-1">{renderInline(line.slice(3))}</h3>);
+    } else if (line.startsWith('### ')) {
+      flushList();
+      elements.push(<h4 key={i} className="text-base font-semibold text-gray-800 mt-3 mb-1">{renderInline(line.slice(4))}</h4>);
+    } else if (line.startsWith('- ') || line.startsWith('* ')) {
+      listBuffer.push(line.slice(2));
+    } else if (line.trim() === '') {
+      flushList();
+    } else {
+      flushList();
+      if (line.trim()) elements.push(<p key={i} className="text-gray-700 leading-relaxed mb-2">{renderInline(line)}</p>);
+    }
+  });
+
+  flushList();
+  return elements;
+}
+
 export default function ResultadosTest() {
   const location = useLocation();
   const [profesiones, setProfesiones] = useState([]);
+  const [informeMarkdown, setInformeMarkdown] = useState('');
   const [cargando, setCargando] = useState(true);
   const [frase, setFrase] = useState('');
   const [isFallback, setIsFallback] = useState(false);
   const [objetivoId, setObjetivoId] = useState(null);
+  const [isInformeExpanded, setIsInformeExpanded] = useState(false);
   const { showToast } = useToast();
   // Cache imagenes en memoria para evitar peticiones repetidas en la misma sesión
   const imageCacheRef = useRef({});
@@ -49,12 +102,33 @@ export default function ResultadosTest() {
   useEffect(() => {
     async function generarResultados() {
       try {
+        // ── Fast path: venimos del test con los resultados ya calculados ──────
+        const stateProfs = location.state?.profesiones;
+        if (Array.isArray(stateProfs) && stateProfs.length > 0) {
+          setProfesiones(stateProfs);
+          setInformeMarkdown(location.state?.resultadoTexto || '');
+          setFrase('Tu elemento está donde se cruzan tus pasiones con tus talentos. Basado en tus respuestas, podría encontrarse en...');
+          // No quitamos carga aquí; dejamos que el effect de imágenes lo haga
+          return;
+        }
+
         // Intentar obtener el último resultado guardado del usuario
         const res = await getUserResults();
         if (res?.success && res.results && res.results.length > 0) {
           const latest = res.results[0];
-          // El campo 'profesiones' puede estar guardado como JSON
-          const profs = latest.profesiones ? JSON.parse(latest.profesiones) : [];
+          // El campo 'profesiones' puede venir como string JSON o ya como objeto/array
+          let profs = [];
+          try {
+            if (typeof latest.profesiones === 'string') {
+              profs = JSON.parse(latest.profesiones);
+            } else if (Array.isArray(latest.profesiones)) {
+              profs = latest.profesiones;
+            }
+          } catch (e) {
+            profs = [];
+          }
+          setInformeMarkdown(latest.result_text || '');
+
           // Obtener objetivo actual del usuario para marcar la profesion elegida
           let objetivo = null;
           try {
@@ -87,7 +161,7 @@ export default function ResultadosTest() {
 
           setProfesiones(mapped);
           setFrase('Estos son tus resultados guardados:');
-          // No quitamos carga aquí, dejamos que el effect de imágenes lo haga
+          setCargando(false);
           return;
         }
 
@@ -150,89 +224,15 @@ export default function ResultadosTest() {
           'Tu elemento está donde se cruzan tus pasiones con tus talentos. Basado en tus respuestas, podría encontrarse en...'
         );
       } catch (error) {
-        setCargando(false); // En error, quitamos carga
+        setCargando(false);
       }
-      // No usamos finally para quitar carga, esperamos a las imágenes
+      setCargando(false);
     }
 
     generarResultados();
   }, [location.state]);
 
-  // Cuando cambie la lista de profesiones, solicitar al backend la imagen para cada una
-  useEffect(() => {
-    if (!profesiones || profesiones.length === 0) return;
 
-    const isValidImage = (url) => {
-      if (!url) return false;
-      const u = String(url).toLowerCase();
-      // Considerar VÁLIDAS: Pexels, Lexica, storage local
-      return (
-        u.includes('images.pexels.com') ||
-        u.includes('lexica.art') ||
-        u.startsWith('http://127.0.0.1') ||
-        u.startsWith('http://localhost') ||
-        u.startsWith('/storage/') ||
-        u.includes('/storage/imagenes-profesiones/')
-      );
-    };
-
-    // Si todas las profesiones ya tienen imagen válida, no hacemos nada.
-    // Si todas las profesiones ya tienen imagen válida, no hacemos nada.
-    const needFetch = profesiones.some(p => !p.imagenUrl || p.imagenUrl === '' || !isValidImage(p.imagenUrl));
-    if (!needFetch) {
-      setCargando(false); // Ya tenemos todo, mostramos
-      return;
-    }
-
-    let mounted = true;
-
-    async function fetchImages() {
-      const updated = await Promise.all(profesiones.map(async (p) => {
-        try {
-          const titulo = (p.titulo || '').trim();
-          const cacheKey = titulo.toLowerCase();
-
-          // Si ya estaba en caché, usarla
-          if (imageCacheRef.current[cacheKey]) {
-            return { ...p, imagenUrl: imageCacheRef.current[cacheKey] };
-          }
-
-          // Si la profesión ya trae imagen VÁLIDA (Pexels, Lexica, storage), respetarla y NO generar otra
-          if (p.imagenUrl && p.imagenUrl !== '' && isValidImage(p.imagenUrl)) {
-            imageCacheRef.current[cacheKey] = p.imagenUrl;
-            return p;
-          }
-
-          // Solo si NO tiene imagen válida, llamar al endpoint para generar/obtener una
-          const resp = await generateImageForProfession({ profesion: titulo });
-          const url = resp?.imagenUrl || '/images/default-profession.jpg';
-          imageCacheRef.current[cacheKey] = url;
-          return { ...p, imagenUrl: url };
-        } catch (err) {
-          const fallback = '/images/default-profession.jpg';
-          try { imageCacheRef.current[(p.titulo || '').toLowerCase()] = fallback; } catch (e) { }
-          return { ...p, imagenUrl: fallback };
-        }
-      }));
-
-      if (mounted) {
-        // Sólo actualizar si hay cambios reales (evitar bucles)
-        setProfesiones(prev => {
-          // Merge: mantener propiedades previas y sobreescribir imagenes donde proceda
-          const merged = prev.map(orig => {
-            const upd = updated.find(u => (u.titulo || '').trim() === (orig.titulo || '').trim());
-            return upd ? { ...orig, imagenUrl: upd.imagenUrl } : orig;
-          });
-          return merged;
-        });
-        setCargando(false); // Imágenes cargadas, mostramos
-      }
-    }
-
-    fetchImages();
-
-    return () => { mounted = false; };
-  }, [profesiones]);
 
   const guardarProfesion = async (profesion) => {
     try {
@@ -315,6 +315,207 @@ export default function ResultadosTest() {
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  const handleDownloadReport = () => {
+    const text = informeMarkdown;
+    if (!text || text === 'Respuesta truncada.') {
+      showToast('error', 'El informe aún no está disponible. Intenta actualizar la página.');
+      return;
+    }
+
+    // Convertir Markdown básico a HTML para el PDF
+    const mdToHtml = (md) => {
+      return md
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/gs, '<ul>$&</ul>')
+        .replace(/^\|(.+)\|$/gm, (match) => {
+          const cells = match.split('|').filter(c => c.trim());
+          return '<tr>' + cells.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
+        })
+        .replace(/(<tr>.*<\/tr>\n?)+/gs, '<table>$&</table>')
+        .replace(/^(?!<[hulist]).+$/gm, (line) => line.trim() ? `<p>${line}</p>` : '')
+        .replace(/<\/ul>\n<ul>/g, '');
+    };
+
+    const htmlContent = mdToHtml(text);
+    const fecha = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      showToast('error', 'El navegador bloqueó la ventana emergente. Permite las ventanas emergentes e inténtalo de nuevo.');
+      return;
+    }
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Informe Vocacional – VocAcción</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #1a1a2e;
+      background: #ffffff;
+      padding: 48px;
+      max-width: 820px;
+      margin: 0 auto;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .pdf-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 3px solid #7c3aed;
+      padding-bottom: 20px;
+      margin-bottom: 32px;
+    }
+
+    .logo-brand {
+      font-size: 24px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #7c3aed, #16a34a);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .pdf-meta {
+      font-size: 12px;
+      color: #6b7280;
+      text-align: right;
+      line-height: 1.5;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 800;
+      color: #7c3aed;
+      margin: 28px 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #ede9fe;
+    }
+
+    h2 {
+      font-size: 17px;
+      font-weight: 700;
+      color: #5b21b6;
+      margin: 22px 0 10px;
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #374151;
+      margin: 16px 0 8px;
+    }
+
+    p { margin-bottom: 10px; color: #374151; }
+
+    ul {
+      margin: 8px 0 12px 20px;
+      color: #374151;
+    }
+
+    li { margin-bottom: 5px; }
+
+    strong { color: #1f2937; font-weight: 700; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 13px;
+    }
+
+    td, th {
+      border: 1px solid #e5e7eb;
+      padding: 8px 12px;
+      text-align: left;
+    }
+
+    tr:nth-child(even) td { background: #f9fafb; }
+    tr:first-child td { background: #ede9fe; font-weight: 600; }
+
+    .pdf-footer {
+      margin-top: 40px;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    .print-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: linear-gradient(135deg, #7c3aed, #16a34a);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 50px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(124,58,237,0.4);
+      z-index: 100;
+    }
+
+    .print-btn:hover { opacity: 0.9; transform: scale(1.02); }
+
+    @media print {
+      .print-btn { display: none !important; }
+      body { padding: 20px; font-size: 12px; }
+      h1 { font-size: 18px; }
+      h2 { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="pdf-header">
+    <div>
+      <div class="logo-brand">VocAcción</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:4px;">Tu futuro profesional</div>
+    </div>
+    <div class="pdf-meta">
+      <div><strong>Informe Vocacional RIASEC</strong></div>
+      <div>Generado el ${fecha}</div>
+      <div>Confidencial – Uso personal</div>
+    </div>
+  </div>
+
+  <div class="report-content">
+    ${htmlContent}
+  </div>
+
+  <div class="pdf-footer">
+    © ${new Date().getFullYear()} VocAcción · Tu orientador vocacional con Inteligencia Artificial · informe generado automáticamente con tecnología Gemini AI
+  </div>
+
+  <button class="print-btn" onclick="window.print()">
+    🖨️ Guardar como PDF
+  </button>
+
+  <script>
+    // Auto-abrir diálogo de impresión tras un pequeño delay
+    setTimeout(() => window.print(), 800);
+  </script>
+</body>
+</html>`);
+
+    printWindow.document.close();
+  };
+
 
   const volverARealizarTest = () => {
     navigate('/test');
@@ -530,6 +731,55 @@ export default function ResultadosTest() {
             </div>
           </div>
         </div>
+
+        {/* Informe RIASEC en Markdown */}
+        {informeMarkdown && (
+          <div className="max-w-4xl mx-auto mb-12">
+            <div className="bg-white rounded-2xl shadow-lg border-2 border-purple-100 overflow-hidden">
+              {/* Header del informe - Clickable to expand */}
+              <div 
+                onClick={() => setIsInformeExpanded(!isInformeExpanded)}
+                className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-purple-600 to-green-600 cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-3">
+                  <FileText className="w-5 h-5 text-white" />
+                  <span className="text-white font-bold text-lg">Tu Informe Vocacional</span>
+                </div>
+                
+                <div className="flex items-center gap-2 text-white/90">
+                  <span className="text-sm font-medium hidden sm:inline">
+                    {isInformeExpanded ? 'Cerrar informe' : 'Pulsa para leer el informe completo'}
+                  </span>
+                  {isInformeExpanded ? (
+                    <ChevronUp className="w-5 h-5" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 animate-bounce" />
+                  )}
+                </div>
+              </div>
+
+              {/* Contenido del informe */}
+              {isInformeExpanded && (
+                <div className="flex flex-col animate-fadeIn">
+                  <div className="px-8 py-6 text-sm md:text-base text-justify markdown-content border-b border-gray-100">
+                    {renderMarkdown(informeMarkdown)}
+                  </div>
+                  
+                  {/* Footer del informe - Botón de descarga al final */}
+                  <div className="bg-gray-50 px-8 py-4 flex justify-end">
+                    <button
+                      onClick={handleDownloadReport}
+                      className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-6 py-2.5 rounded-full text-sm font-semibold transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                    >
+                      <Download className="w-4 h-4" />
+                      Descargar informe en PDF
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Grid de tarjetas profesionales con componente reutilizable */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-12">

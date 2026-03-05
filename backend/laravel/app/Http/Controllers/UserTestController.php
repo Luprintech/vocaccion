@@ -7,9 +7,19 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Services\ProfesionComparadorService;
+use App\Services\GeminiService;
+use App\Models\VocationalSession;
+use App\Models\VocationalProfile;
 
 class UserTestController extends Controller
 {
+    protected GeminiService $gemini;
+
+    public function __construct(GeminiService $gemini)
+    {
+        $this->gemini = $gemini;
+    }
+
     // ============================================
     // FUNCIONES DE GESTIÓN DE TEST
     // ============================================
@@ -245,6 +255,22 @@ class UserTestController extends Controller
             }
         }
 
+        // Borrar sesiones del motor RIASEC (vocational_sessions)
+        // ⚠️ CRÍTICO: Sin esto, TestController::iniciar() sigue encontrando
+        // la sesión completada y devuelve estado='completado' → bucle infinito.
+        try {
+            \App\Models\VocationalSession::where('usuario_id', $user->id)->delete();
+        } catch (\Exception $e) {
+            Log::error('Error borrando vocational_sessions: ' . $e->getMessage());
+        }
+
+        // Resetear perfil RIASEC para que el nuevo test empiece con scores a 0
+        try {
+            \App\Models\VocationalProfile::where('usuario_id', $user->id)->delete();
+        } catch (\Exception $e) {
+            Log::error('Error borrando vocational_profile: ' . $e->getMessage());
+        }
+
         // Borrar itinerarios generados
         try {
             DB::table('itinerarios_generados')
@@ -304,8 +330,9 @@ class UserTestController extends Controller
 
 
     /**
-     * Listar resultados guardados del usuario (más recientes primero)
-     * AHORA CON RECALCULACIÓN DE HABILIDADES USANDO EL SERVICIO CENTRALIZADO
+     * Listar resultados guardados del usuario (más recientes primero).
+     * Si no hay resultados en test_results pero hay una vocational_session completada,
+     * llama automáticamente al análisis para generar y persistir los resultados.
      */
     public function listResults()
     {
@@ -320,6 +347,113 @@ class UserTestController extends Controller
                 ->orderBy('created_at', 'desc')
                 ->get();
 
+            // ── RECUPERACIÓN AUTOMÁTICA ───────────────────────────────────────────────────────
+            // Si no hay resultados guardados pero existe una vocational_session completada,
+            // regenerar los resultados llamando al servicio de análisis.
+            if ($results->isEmpty()) {
+                $vocSession = VocationalSession::where('usuario_id', $user->id)
+                    ->where('is_completed', true)
+                    ->latest()
+                    ->first();
+
+                if ($vocSession && !empty($vocSession->history_log)) {
+                    Log::info('listResults: test_results vacío con vocSession completada, regenerando...', [
+                        'usuario_id' => $user->id,
+                        'session_id' => $vocSession->id,
+                    ]);
+
+                    // Resolver o crear el perfil vocacional
+                    $profile = VocationalProfile::where('usuario_id', $user->id)->first();
+                    if (!$profile) {
+                        $profile = VocationalProfile::create(['usuario_id' => $user->id]);
+                    }
+
+                    // Construir contexto para Gemini
+                    $historyLog = $vocSession->history_log ?? [];
+                    $profileData = $profile->toArray();
+
+                    $totalScore = ($profileData['realistic_score'] ?? 0)
+                        + ($profileData['investigative_score'] ?? 0)
+                        + ($profileData['artistic_score'] ?? 0)
+                        + ($profileData['social_score'] ?? 0)
+                        + ($profileData['enterprising_score'] ?? 0)
+                        + ($profileData['conventional_score'] ?? 0);
+
+                    if ($totalScore === 0 && !empty($historyLog)) {
+                        $profileData['_raw_history'] = $historyLog;
+                    }
+
+                    // Generar informe y recomendaciones directamente con Gemini
+                    try {
+                        $reportMarkdown = $this->gemini->generateReport($profileData);
+                        $profesiones = $this->gemini->generateCareerRecommendations($profileData, $reportMarkdown);
+
+                        if (!empty($profesiones) && is_array($profesiones)) {
+                            foreach ($profesiones as &$profesion) {
+                                if (!isset($profesion['imagenUrl']) || empty($profesion['imagenUrl'])) {
+                                    $searchTerm = $this->gemini->generateImageSearchTerm($profesion['titulo']);
+                                    if (empty($searchTerm)) {
+                                        $searchTerm = $profesion['titulo'];
+                                    }
+
+                                    $pexelsResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                                        'Authorization' => config('services.pexels.key', ''),
+                                    ])->get('https://api.pexels.com/v1/search', [
+                                                'query' => $searchTerm,
+                                                'per_page' => 1,
+                                                'orientation' => 'landscape',
+                                            ]);
+
+                                    if ($pexelsResponse->successful()) {
+                                        $photos = $pexelsResponse->json('photos');
+                                        $profesion['imagenUrl'] = $photos[0]['src']['large2x'] ?? '/images/default-profession.jpg';
+                                    } else {
+                                        $profesion['imagenUrl'] = '/images/default-profession.jpg';
+                                    }
+                                }
+                            }
+                            unset($profesion);
+                        }
+
+                        // Fallback si Gemini no devuelve profesiones
+                        if (empty($profesiones)) {
+                            $profesiones = [
+                                ['titulo' => 'Consultor de Carrera', 'descripcion' => 'Tu perfil muestra capacidades analíticas y de comunicación que encajan con la orientación profesional.', 'salidas' => 'Orientador laboral, Coach profesional, Consultor RRHH', 'nivel' => 'Grado Universitario', 'sector' => 'Servicios', 'match_porcentaje' => 75],
+                                ['titulo' => 'Analista de Datos', 'descripcion' => 'Tu perfil investigativo y sistemático te posiciona bien en el mundo de los datos y la analítica.', 'salidas' => 'Data Analyst, Business Analyst, Analista BI', 'nivel' => 'Grado Universitario o FP Superior', 'sector' => 'Tecnología', 'match_porcentaje' => 70],
+                                ['titulo' => 'Coordinador de Proyectos', 'descripcion' => 'Tu capacidad organizativa y de planificación encaja con la gestión de proyectos en múltiples sectores.', 'salidas' => 'Project Manager, Coordinador de área, Responsable de operaciones', 'nivel' => 'Grado Universitario', 'sector' => 'Transversal', 'match_porcentaje' => 65],
+                            ];
+                        }
+
+                        // Persistir resultados para futuros accesos
+                        DB::table('test_results')->insert([
+                            'usuario_id' => $user->id,
+                            'test_session_id' => null,
+                            'answers' => json_encode($historyLog),
+                            'result_text' => $reportMarkdown,
+                            'profesiones' => json_encode($profesiones),
+                            'saved_at' => now(),
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+
+                        // Recargar resultados recién insertados
+                        $results = DB::table('test_results')
+                            ->where('usuario_id', $user->id)
+                            ->orderBy('created_at', 'desc')
+                            ->get();
+
+                        Log::info('listResults: resultados regenerados y guardados', [
+                            'usuario_id' => $user->id,
+                            'count' => $results->count(),
+                        ]);
+                    } catch (\Throwable $ex) {
+                        Log::error('listResults: error regenerando resultados: ' . $ex->getMessage());
+                    }
+                }
+            }
+
+            // ──────────────────────────────────────────────────────────────────
+
             // RECALCULAR HABILIDADES Y ESTUDIOS PARA CADA RESULTADO
             $comparador = new ProfesionComparadorService();
             $perfil = $user->perfil;
@@ -332,38 +466,17 @@ class UserTestController extends Controller
                         // Recalcular para cada profesión
                         foreach ($profesiones as &$prof) {
                             $profObj = (object) $prof;
-
-                            // DEBUG: Ver qué campos tiene la profesión original
-                            Log::info('📋 Profesión antes de enriquecer', [
-                                'titulo' => $profObj->titulo ?? 'sin titulo',
-                                'tiene_formaciones_necesarias' => isset($profObj->formaciones_necesarias),
-                                'tiene_estudios' => isset($profObj->estudios),
-                                'formaciones_necesarias' => $profObj->formaciones_necesarias ?? null,
-                                'estudios' => $profObj->estudios ?? null
-                            ]);
-
                             $profObj = $comparador->enriquecerProfesion($profObj, $perfil);
 
-                            // Actualizar con datos recalculados
                             if (isset($profObj->habilidades_comparadas)) {
                                 $prof['habilidades'] = $profObj->habilidades_comparadas;
                             }
-
                             if (isset($profObj->estudios_comparados)) {
                                 $prof['estudios'] = $profObj->estudios_comparados;
-
-                                // DEBUG: Ver qué se está asignando
-                                Log::info('✅ Estudios asignados', [
-                                    'count' => count($profObj->estudios_comparados),
-                                    'estudios' => $profObj->estudios_comparados
-                                ]);
-                            } else {
-                                Log::warning('⚠️ No hay estudios_comparados para esta profesión');
                             }
                         }
                         unset($prof);
 
-                        // Guardar de vuelta como JSON
                         $result->profesiones = json_encode($profesiones);
                     }
                 }
@@ -372,6 +485,7 @@ class UserTestController extends Controller
 
             return response()->json(['success' => true, 'results' => $results]);
         } catch (\Exception $e) {
+            Log::error('Error en listResults: ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
             return response()->json(['success' => false, 'error' => 'Error al obtener resultados'], 500);
         }
     }

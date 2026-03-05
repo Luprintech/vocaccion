@@ -15,6 +15,7 @@ class CreateTestResultsTable extends Migration
             $table->json('answers');
             $table->text('result_text');
             $table->string('modelo')->nullable();
+            $table->json('profesiones')->nullable();
             $table->timestamp('saved_at')->nullable();
             $table->timestamps();
 
@@ -25,7 +26,9 @@ class CreateTestResultsTable extends Migration
 
     public function down()
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('test_results');
+        Schema::enableForeignKeyConstraints();
     }
 }
 

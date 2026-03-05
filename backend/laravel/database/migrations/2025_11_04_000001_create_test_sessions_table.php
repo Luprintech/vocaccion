@@ -22,7 +22,9 @@ class CreateTestSessionsTable extends Migration
 
     public function down()
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('test_sessions');
+        Schema::enableForeignKeyConstraints();
     }
 }
 

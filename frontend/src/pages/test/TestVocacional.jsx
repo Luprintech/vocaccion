@@ -57,8 +57,10 @@ export default function TestVocacional() {
   const [analyzingResults, setAnalyzingResults] = useState(false);
   const [loadingImages, setLoadingImages] = useState(false); // Nuevo estado para precarga de imágenes
 
-  // Ref para idempotencia
+  // Ref para idempotencia de request (evita doble-procesado)
   const lastReqRef = useRef(null);
+  // Ref para X-Idempotency-Key: se genera al seleccionar opción, se reusa en retries
+  const idempotencyKeyRef = useRef(null);
 
   // Estado para Widget Draggable
   const [widgetPos, setWidgetPos] = useState({ x: 0, y: 0 });
@@ -100,6 +102,22 @@ export default function TestVocacional() {
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
 
+  /**
+   * Genera un UUID v4 usando crypto.randomUUID() (disponible en todos los
+   * navegadores modernos). Fallback manual por si acaso.
+   */
+  const generateUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // Fallback manual RFC 4122 v4
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  };
+
   useEffect(() => {
     if (!isAuthenticated) {
       navigate("/login");
@@ -129,19 +147,21 @@ export default function TestVocacional() {
       const data = await res.json();
 
       if (data.success) {
+        // Test ya completado → mostrar pantalla de resultados
         if (data.estado === 'completado') {
           setViewState('finished');
           return;
         }
 
-        // Si hay progreso (índice > 0), mostramos Landing de "Reanudar"
-        if (data.current_index > 0) {
+        // Sesión en progreso → mostrar landing de reanudar
+        if (data.estado === 'en_progreso') {
           setSessionData(data);
           setViewState('landing');
-        } else {
-          // Si es nuevo (índice 0), iniciamos directamente
-          initializeActiveTest(data);
+          return;
         }
+
+        // Sesión nueva (estado === 'nuevo') → iniciar directamente
+        initializeActiveTest(data);
       } else {
         throw new Error(data.error || "Error desconocido");
       }
@@ -154,15 +174,27 @@ export default function TestVocacional() {
   // 2. Iniciar el test con los datos recibidos
   const initializeActiveTest = (data) => {
     setSessionId(data.session_id);
-    setCurrentQuestion(data.pregunta_actual);
-    setCurrentIndex(data.current_index);
+    
+    // Transformación inicial
+    const rawInit = data.pregunta_actual;
+    const transformedInit = {
+         ...rawInit,
+         texto: rawInit.question_text || rawInit.pregunta || rawInit.texto,
+         opciones: rawInit.options || rawInit.opciones || []
+    };
+
+    setCurrentQuestion(transformedInit);
+    // Backend devuelve question_count como 'progress'. Al entrar al test,
+    // currentIndex = número de preguntas YA respondidas (0 = primera pregunta)
+    const startIndex = data.current_index ?? data.progress ?? 0;
+    setCurrentIndex(startIndex);
     setTotalQuestions(data.total_questions || 20);
 
     // Historial
     if (data.questions && Array.isArray(data.questions) && data.questions.length > 0) {
       setQuestionHistory(data.questions);
     } else {
-      setQuestionHistory([data.pregunta_actual]);
+      setQuestionHistory([transformedInit]);
     }
 
     setViewState('active');
@@ -214,6 +246,16 @@ export default function TestVocacional() {
 
   const handleOptionSelect = (value) => {
     if (generating) return;
+
+    // Solo generar nueva key si la opción cambia.
+    // Si el usuario reintenta la misma opción (retry de red, doble-click),
+    // se reusa la key existente para que el backend devuelva el caché.
+    const newText = value?.texto ?? value;
+    const prevText = selectedOption?.texto ?? selectedOption;
+    if (newText !== prevText) {
+      idempotencyKeyRef.current = generateUUID();
+    }
+
     setSelectedOption(value);
   };
 
@@ -235,7 +277,10 @@ export default function TestVocacional() {
       const payload = {
         session_id: sessionId,
         pregunta_id: currentQuestion.id,
-        respuesta: selectedOption,
+        respuesta: selectedOption?.texto ?? selectedOption, // Fallback si es string antiguo
+        trait: selectedOption?.trait ?? null,
+        all_traits: currentQuestion.opciones ? currentQuestion.opciones.map(o => o.trait).filter(Boolean) : [],
+        strategy_type: currentQuestion.strategy_type ?? null,
         editar: isEditing,
         request_id: requestId
       };
@@ -246,6 +291,12 @@ export default function TestVocacional() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
+          // Idempotency key: el backend usa este header para detectar duplicados.
+          // Si llega una segunda request con la misma key mientras la primera
+          // sigue procesando (o ya terminó), devuelve el resultado cacheado.
+          ...(idempotencyKeyRef.current
+            ? { 'X-Idempotency-Key': idempotencyKeyRef.current }
+            : {}),
         },
         body: JSON.stringify(payload)
       });
@@ -275,7 +326,15 @@ export default function TestVocacional() {
           });
 
           if (analysisRes.ok) {
-            navigate("/resultados");
+            const analysisData = await analysisRes.json();
+            // Pasar los resultados como state para que ResultadosTest los muestre
+            navigate("/resultados", {
+              state: {
+                resultadoTexto: analysisData.report_markdown || '',
+                profesiones: analysisData.resultados?.profesiones || [],
+                fromTest: true,
+              }
+            });
           } else {
             navigate("/resultados");
           }
@@ -289,7 +348,9 @@ export default function TestVocacional() {
 
 
       // Actualizar preguntas
-      if (data.pregunta) {
+      const rawQuestion = data.pregunta || data.pregunta_actual;
+      
+      if (rawQuestion) {
         // PREMIUM: Gestión de Convergence Data
         if (data.semantic_areas) {
             setSemanticAreas(data.semantic_areas);
@@ -301,7 +362,12 @@ export default function TestVocacional() {
             setShowTransition(true);
         }
 
-        const nextQuestion = data.pregunta;
+        // TRANSFORMACIÓN DE DATOS (Adaptación al nuevo Backend Engine)
+        const nextQuestion = {
+             ...rawQuestion,
+             texto: rawQuestion.question_text || rawQuestion.pregunta || rawQuestion.texto,
+             opciones: rawQuestion.options || rawQuestion.opciones || []
+        };
         
         // --- PRECARGA DE IMÁGENES (Premium UI) - Backend Pexels ---
         if (nextQuestion.tipo === 'imagen' && nextQuestion.opciones) {
@@ -318,7 +384,7 @@ export default function TestVocacional() {
                             "Content-Type": "application/json",
                             Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ profesion: opcion }),
+                        body: JSON.stringify({ profesion: opcion?.texto || opcion }),
                     });
                     
                     if (!res.ok) throw new Error("Backend error");
@@ -400,13 +466,15 @@ export default function TestVocacional() {
         setAnswerHistory(newAHistory);
 
         setCurrentQuestion(nextQuestion);
-        setCurrentIndex(data.current_index);
+        setCurrentIndex(data.current_index ?? data.progress ?? 0);
 
         newQHistory.push(nextQuestion);
         setQuestionHistory(newQHistory);
 
         setSelectedOption(null);
-        setShowReasoning(false); 
+        setShowReasoning(false);
+        // Resetear key de idempotencia: la siguiente pregunta necesita una key nueva
+        idempotencyKeyRef.current = null;
       }
   };
 
@@ -417,6 +485,8 @@ export default function TestVocacional() {
       setCurrentIndex(prevIndex);
       setCurrentQuestion(questionHistory[prevIndex]);
       setSelectedOption(answerHistory[prevIndex] || null);
+      // Al navegar atrás se reseteará la key al re-seleccionar la opción
+      idempotencyKeyRef.current = null;
     }
   };
 
@@ -456,99 +526,113 @@ export default function TestVocacional() {
   // VISTA: TEST FINALIZADO (Diseño TestIntro)
   if (viewState === 'finished') {
     return (
-      <section className="relative w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50 overflow-hidden px-4 py-16">
-        {/* Círculos decorativos */}
-        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        <div className="absolute top-40 right-10 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
+      <>
+        <section className="relative w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50 overflow-hidden px-4 py-16">
+          {/* Círculos decorativos */}
+          <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute top-40 right-10 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
+          <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
 
-        <div className="relative bg-white shadow-2xl rounded-3xl max-w-3xl w-full px-10 py-12 text-center space-y-6 z-10">
+          <div className="relative bg-white shadow-2xl rounded-3xl max-w-3xl w-full px-10 py-12 text-center space-y-6 z-10">
 
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-50 border border-green-200 shadow-lg">
-            <Sparkles className="w-4 h-4 text-green-600" />
-            <span className="text-sm font-semibold text-green-600">Has completado el test</span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-50 border border-green-200 shadow-lg">
+              <Sparkles className="w-4 h-4 text-green-600" />
+              <span className="text-sm font-semibold text-green-600">Has completado el test</span>
+            </div>
+
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 leading-tight">
+              <span className="bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent">Ya realizaste el test</span>
+            </h1>
+
+            <p className="text-lg text-gray-600 leading-relaxed">
+              Ya tenemos resultados guardados para tu perfil. Puedes verlos ahora o volver a realizar el test si quieres actualizar tu informe.
+            </p>
+
+            <div className="flex flex-col md:flex-row gap-4 justify-center mt-6">
+              <button
+                onClick={() => navigate('/resultados')}
+                className="bg-yellow-500 hover:bg-yellow-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition cursor-pointer"
+              >
+                Ver resultados
+              </button>
+              <button
+                onClick={handleStartOver}
+                className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition cursor-pointer"
+              >
+                Reiniciar test
+              </button>
+            </div>
           </div>
-
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 leading-tight">
-            <span className="bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent">Ya realizaste el test</span>
-          </h1>
-
-          <p className="text-lg text-gray-600 leading-relaxed">
-            Ya tenemos resultados guardados para tu perfil. Puedes verlos ahora o volver a realizar el test si quieres actualizar tu informe.
-          </p>
-
-          <div className="flex flex-col md:flex-row gap-4 justify-center mt-6">
-            <button
-              onClick={() => navigate('/resultados')}
-              className="bg-yellow-500 hover:bg-yellow-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
-            >
-              Ver resultados
-            </button>
-            <button
-              onClick={handleStartOver}
-              className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
-            >
-              Reiniciar test
-            </button>
-          </div>
-        </div>
-      </section>
+        </section>
+        <ConfirmStartModal
+          isOpen={showStartOverModal}
+          onClose={() => setShowStartOverModal(false)}
+          onConfirm={confirmStartOverAction}
+        />
+      </>
     );
   }
 
   // VISTA: LANDING / REANUDAR (Diseño TestIntro)
   if (viewState === 'landing') {
     return (
-      <section className="relative w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50 overflow-hidden px-4 py-16">
-        {/* Círculos decorativos */}
-        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
-        <div className="absolute top-40 right-10 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
+      <>
+        <section className="relative w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50 overflow-hidden px-4 py-16">
+          {/* Círculos decorativos */}
+          <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
+          <div className="absolute top-40 right-10 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
+          <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
 
-        <div className="relative bg-white shadow-2xl rounded-3xl max-w-3xl w-full px-10 py-12 text-center space-y-6 z-10">
+          <div className="relative bg-white shadow-2xl rounded-3xl max-w-3xl w-full px-10 py-12 text-center space-y-6 z-10">
 
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-50 border border-yellow-200 shadow-lg">
-            <RefreshCw className="w-4 h-4 text-yellow-600" />
-            <span className="text-sm font-semibold text-yellow-600">
-              ¡Tienes un test pendiente!
-            </span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-yellow-50 border border-yellow-200 shadow-lg">
+              <RefreshCw className="w-4 h-4 text-yellow-600" />
+              <span className="text-sm font-semibold text-yellow-600">
+                ¡Tienes un test pendiente!
+              </span>
+            </div>
+
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 leading-tight">
+              <span className="bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">
+                Retoma donde lo dejaste
+              </span>
+            </h1>
+
+            <p className="text-lg text-gray-600 leading-relaxed">
+              Ya habías comenzado un test vocacional. Puedes continuarlo desde
+              la última pregunta respondida o empezar uno nuevo.
+            </p>
+
+            <div className="flex flex-col md:flex-row gap-4 justify-center mt-6">
+              <button
+                onClick={handleResume}
+                className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition cursor-pointer"
+              >
+                Continuar test
+              </button>
+              <button
+                onClick={handleStartOver}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-8 py-3 rounded-full font-semibold shadow-md transition cursor-pointer"
+              >
+                Empezar de nuevo
+              </button>
+            </div>
+
+            {/* Iconos decorativos */}
+            <div className="absolute top-8 left-8 opacity-10 animate-float hidden md:block">
+              <Lightbulb className="w-12 h-12 text-purple-500" />
+            </div>
+            <div className="absolute bottom-8 right-8 opacity-10 animate-float animation-delay-3000 hidden md:block">
+              <GraduationCap className="w-16 h-16 text-green-500" />
+            </div>
           </div>
-
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 leading-tight">
-            <span className="bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">
-              Retoma donde lo dejaste
-            </span>
-          </h1>
-
-          <p className="text-lg text-gray-600 leading-relaxed">
-            Ya habías comenzado un test vocacional. Puedes continuarlo desde
-            la última pregunta respondida o empezar uno nuevo.
-          </p>
-
-          <div className="flex flex-col md:flex-row gap-4 justify-center mt-6">
-            <button
-              onClick={handleResume}
-              className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-semibold shadow-md transition"
-            >
-              Continuar test
-            </button>
-            <button
-              onClick={handleStartOver}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-8 py-3 rounded-full font-semibold shadow-md transition"
-            >
-              Empezar de nuevo
-            </button>
-          </div>
-
-          {/* Iconos decorativos */}
-          <div className="absolute top-8 left-8 opacity-10 animate-float hidden md:block">
-            <Lightbulb className="w-12 h-12 text-purple-500" />
-          </div>
-          <div className="absolute bottom-8 right-8 opacity-10 animate-float animation-delay-3000 hidden md:block">
-            <GraduationCap className="w-16 h-16 text-green-500" />
-          </div>
-        </div>
-      </section>
+        </section>
+        <ConfirmStartModal
+          isOpen={showStartOverModal}
+          onClose={() => setShowStartOverModal(false)}
+          onConfirm={confirmStartOverAction}
+        />
+      </>
     );
   }
 
@@ -657,18 +741,19 @@ export default function TestVocacional() {
               {/* PREMIUM: Grid de Imágenes si es tipo imagen */}
               {currentQuestion?.tipo === 'imagen' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4">
-                  {currentQuestion.opciones.slice(0, 4).map((opcion, idx) => {
-                    const isSelected = selectedOption === opcion;
+                  {currentQuestion.opciones.slice(0, 4).map((opcionObj, idx) => {
+                    const opcionTexto = opcionObj.texto || opcionObj;
+                    const isSelected = (selectedOption?.texto || selectedOption) === opcionTexto;
                     // Generación semántica usando Backend (Pexels) o Fallback
                     // Usamos la URL precargada si existe (DEBERÍA EXISTIR SIEMPRE por la precarga)
                     const imgUrl = currentQuestion.cachedImages && currentQuestion.cachedImages[idx]
                         ? currentQuestion.cachedImages[idx]
-                        : `https://placehold.co/800x600?text=${encodeURIComponent(opcion)}`;
+                        : `https://placehold.co/800x600?text=${encodeURIComponent(opcionTexto)}`;
 
                     return (
                       <button
                         key={idx}
-                        onClick={() => handleOptionSelect(opcion)}
+                        onClick={() => handleOptionSelect(opcionObj)}
                         className={`
                           group relative w-full h-40 rounded-2xl overflow-hidden shadow-sm transition-all duration-500 cursor-pointer
                           ${isSelected ? 'ring-4 ring-purple-600 shadow-2xl scale-[1.02]' : 'hover:shadow-xl hover:scale-[1.01]'}
@@ -684,7 +769,7 @@ export default function TestVocacional() {
                          {/* Gradiente y Texto */}
                          <div className={`absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-6 transition-all duration-300 ${isSelected ? 'opacity-100' : 'opacity-90'}`}>
                             <p className="text-white font-bold text-lg md:text-xl text-left leading-tight drop-shadow-md">
-                                {opcion}
+                                {opcionTexto}
                             </p>
                          </div>
 
@@ -700,9 +785,10 @@ export default function TestVocacional() {
                 </div>
               ) : (
                 // Renderizado normal de texto
-                currentQuestion?.opciones.map((opcion, idx) => {
-                  const isSelected = selectedOption === opcion;
-                  const isEscape = opcion === '[EXPLORAR_OTRAS_OPCIONES]';
+                currentQuestion?.opciones.map((opcionObj, idx) => {
+                  const opcionTexto = opcionObj.texto || opcionObj;
+                  const isSelected = (selectedOption?.texto || selectedOption) === opcionTexto;
+                  const isEscape = opcionTexto === '[EXPLORAR_OTRAS_OPCIONES]';
                   // ... (resto del código de opción normal, omitido en replacement pero mantenido en lógica)
                   
                   // Renderizar opción escape con estilo diferente
@@ -710,10 +796,10 @@ export default function TestVocacional() {
                     return (
                       <button
                         key={idx}
-                        onClick={() => handleOptionSelect('[EXPLORAR_OTRAS_OPCIONES]')}
+                        onClick={() => handleOptionSelect({ texto: '[EXPLORAR_OTRAS_OPCIONES]', trait: null })}
                         className={`
                           w-full text-center p-4 rounded-xl border-2 border-dashed transition-all duration-200 mt-4 cursor-pointer
-                          ${selectedOption === '[EXPLORAR_OTRAS_OPCIONES]'
+                          ${(selectedOption?.texto || selectedOption) === '[EXPLORAR_OTRAS_OPCIONES]'
                             ? 'border-orange-500 bg-orange-50 text-orange-900 shadow-md'
                             : 'border-gray-300 text-gray-600 hover:text-orange-700 hover:border-orange-400 hover:bg-orange-50'}
                         `}
@@ -731,7 +817,7 @@ export default function TestVocacional() {
                   return (
                     <button
                       key={idx}
-                      onClick={() => handleOptionSelect(opcion)}
+                      onClick={() => handleOptionSelect(opcionObj)}
                       className={`
                         w-full text-left p-3 rounded-xl border-2 transition-all duration-300 group relative overflow-hidden cursor-pointer
                         ${isSelected
@@ -741,7 +827,7 @@ export default function TestVocacional() {
                     >
                       <div className="flex items-center justify-between relative z-10">
                         <span className={`text-base font-medium transition-colors ${isSelected ? 'text-purple-900' : 'text-gray-700 group-hover:text-purple-800'}`}>
-                          {opcion}
+                          {opcionTexto}
                         </span>
                         <div className={`
                           w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300
@@ -756,12 +842,12 @@ export default function TestVocacional() {
               )}
 
               {/* Opción Escape (SIEMPRE VISIBLE, incluso en imágenes) - ESTILO UNIFICADO */}
-              {(currentQuestion?.tipo === 'imagen' || !currentQuestion?.opciones.includes('[EXPLORAR_OTRAS_OPCIONES]')) && (
+              {(currentQuestion?.tipo === 'imagen' || !currentQuestion?.opciones.some(o => (o.texto || o) === '[EXPLORAR_OTRAS_OPCIONES]')) && (
                 <button
-                  onClick={() => handleOptionSelect('[EXPLORAR_OTRAS_OPCIONES]')}
+                  onClick={() => handleOptionSelect({ texto: '[EXPLORAR_OTRAS_OPCIONES]', trait: null })}
                   className={`
                    w-full text-center p-4 rounded-xl border-2 border-dashed transition-all duration-200 mt-6 text-sm flex items-center justify-center gap-2 cursor-pointer
-                   ${selectedOption === '[EXPLORAR_OTRAS_OPCIONES]'
+                   ${(selectedOption?.texto || selectedOption) === '[EXPLORAR_OTRAS_OPCIONES]'
                       ? 'border-orange-500 bg-orange-50 text-orange-900 shadow-md'
                       : 'border-gray-300 text-gray-600 hover:text-orange-700 hover:border-orange-400 hover:bg-orange-50'}
                  `}

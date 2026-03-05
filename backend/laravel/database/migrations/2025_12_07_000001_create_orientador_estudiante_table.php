@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Tabla pivote para la relación orientador-estudiante.
      * Un orientador puede tener múltiples estudiantes asignados.
@@ -32,6 +31,8 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('orientador_estudiante');
+        Schema::enableForeignKeyConstraints();
     }
 };

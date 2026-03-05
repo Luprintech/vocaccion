@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -14,15 +13,15 @@ return new class extends Migration
         Schema::create('mensajes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('emisor_id')
-                  ->constrained('usuarios')
-                  ->cascadeOnDelete();
+                ->constrained('usuarios')
+                ->cascadeOnDelete();
             $table->foreignId('receptor_id')
-                  ->constrained('usuarios')
-                  ->cascadeOnDelete();
+                ->constrained('usuarios')
+                ->cascadeOnDelete();
             $table->text('contenido');
             $table->boolean('leido')->default(false);
             $table->timestamps();
-            
+
             // Índices para búsquedas rápidas
             $table->index(['emisor_id', 'receptor_id']);
             $table->index('leido');
@@ -34,6 +33,8 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('mensajes');
+        Schema::enableForeignKeyConstraints();
     }
 };

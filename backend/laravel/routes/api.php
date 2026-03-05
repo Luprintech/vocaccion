@@ -99,6 +99,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ==============================================
     Route::prefix('test')->group(function () {
         // SISTEMA PROGRESIVO NUEVO
+        Route::get('/estado', [TestController::class, 'estadoTest']); // Consulta estado sin side effects
         Route::post('/iniciar', [TestController::class, 'iniciar']); // Inicia sesión y devuelve pregunta 1
         Route::post('/siguiente-pregunta', [TestController::class, 'siguientePregunta']); // Genera siguiente pregunta
 
@@ -133,21 +134,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/recursos/articulos/{slug}/pdf', [App\Http\Controllers\RecursoPDFController::class, 'generarPDF']);
     Route::get('/recursos/descargar-plantilla/{archivo}', [App\Http\Controllers\RecursoController::class, 'descargarPlantilla']);
-
-    // =====================================================
-    // Rutas de Guías
-    // =====================================================
-    Route::prefix('guias')->middleware('metodo-http')->group(function () {
-        Route::get('/visible', [GuiaController::class, 'visible']);
-        Route::get('/mis-guias', [GuiaController::class, 'myGuides']);
-        Route::get('/palabras-clave', [GuiaController::class, 'getPalabrasClaves']);
-        Route::post('/', [GuiaController::class, 'store']);
-        Route::get('/{guia}', [GuiaController::class, 'show']);
-        Route::put('/{guia}', [GuiaController::class, 'update']);
-        Route::delete('/{guia}', [GuiaController::class, 'destroy']);
-        Route::get('/{guia}/download', [GuiaController::class, 'download']);
-        Route::get('/{guia}/preview', [GuiaController::class, 'preview']);
-    });
 
     // =====================================================
     // TEST ENDPOINT - Para debuggear autenticación
@@ -201,10 +187,16 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/admin.php';
     require __DIR__ . '/orientador.php';
     require __DIR__ . '/estudiante.php';
-    require __DIR__ . '/admin.php';
-    require __DIR__ . '/orientador.php';
-    require __DIR__ . '/estudiante.php';
 });
 
 // Ruta para enviar los datos del formulario de contacto
 Route::post('/contacto', [ContactoController::class, 'enviar']);
+
+// Public alias for image generation (used by frontend and tests without auth context)
+Route::post('/generar-imagen', [TestController::class, 'generarImagenPorProfesion']);
+
+// STRESS TEST ROUTE REMOVED (2026-02-19 — Phase 1 Security Hardening)
+// The diagnostic stress test has been migrated to an Artisan command.
+// Use: php artisan vocacional:stress-test
+// Use: php artisan vocacional:stress-test --dry-run
+// Use: php artisan vocacional:stress-test --questions=5

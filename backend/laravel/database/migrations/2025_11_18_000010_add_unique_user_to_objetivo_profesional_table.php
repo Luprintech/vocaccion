@@ -17,7 +17,11 @@ class AddUniqueUserToObjetivoProfesionalTable extends Migration
     public function down()
     {
         Schema::table('objetivo_profesional', function (Blueprint $table) {
+            // En MySQL, el unique index es usado como soporte de la FK.
+            // Hay que eliminar la FK primero, luego el índice, y volver a crear la FK.
+            $table->dropForeign(['user_id']);
             $table->dropUnique('objetivo_profesional_user_unique');
+            $table->foreign('user_id')->references('id')->on('usuarios')->onDelete('cascade');
         });
     }
 }

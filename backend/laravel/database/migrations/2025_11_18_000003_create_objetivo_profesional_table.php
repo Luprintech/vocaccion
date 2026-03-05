@@ -21,6 +21,8 @@ class CreateObjetivoProfesionalTable extends Migration
 
     public function down()
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('objetivo_profesional');
+        Schema::enableForeignKeyConstraints();
     }
 }

@@ -27,7 +27,8 @@ class Perfil extends Model
         'ciudad',
         'dni',
         'fecha_nacimiento',
-        'telefono'
+        'telefono',
+        'bio',
     ];
 
     /**
@@ -80,7 +81,8 @@ class Perfil extends Model
     /**
      * Relación con Intereses
      */
-    public function intereses(): HasMany {
+    public function intereses(): HasMany
+    {
         return $this->hasMany(Interes::class);
     }
 
@@ -100,8 +102,9 @@ class Perfil extends Model
 
     /**
      * Devuelve true si el perfil tiene los datos básicos completos
-    */
-    public function estaCompleto(): bool {
+     */
+    public function estaCompleto(): bool
+    {
         return !empty($this->nombre) && !empty($this->apellidos) && !empty($this->ciudad);
     }
 }

@@ -3,11 +3,11 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
 use Tests\TestCase;
 use App\Models\Usuario;
-use App\Models\TestSesion;
-use Illuminate\Support\Facades\Http;
+use App\Models\VocationalSession;
+use App\Services\GeminiService;
+use Mockery;
 
 class VocationalTestFlowTest extends TestCase
 {
@@ -15,136 +15,108 @@ class VocationalTestFlowTest extends TestCase
 
     protected $user;
     protected $token;
+    protected $geminiMock;
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Mock GeminiService BEFORE creating the controller that might use it
+        $this->geminiMock = Mockery::mock(GeminiService::class);
+        $this->app->instance(GeminiService::class, $this->geminiMock);
+
         // Crear usuario y autenticar
         $this->user = Usuario::factory()->create();
-        $this->token = auth()->login($this->user);
+        $this->token = $this->user->createToken('test-token')->plainTextToken;
     }
 
     /** @test */
-    public function it_starts_a_new_test_with_static_question_1()
+    public function it_completes_full_vocational_test_flow()
     {
+        // 1. INICIAR TEST
         $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
             ->postJson('/api/test/iniciar');
 
-        $response->assertStatus(200)
-            ->assertJson([
-                'success' => true,
-                'current_index' => 0,
-                'total_questions' => 20,
-                'estado' => 'en_progreso'
-            ]);
-
-        $data = $response->json();
-        $this->assertEquals(1, $data['pregunta_actual']['numero']);
-        $this->assertStringContainsString('tiempo libre', $data['pregunta_actual']['texto']); // Check static text
-    }
-
-    /** @test */
-    public function it_progresses_through_static_questions_to_dynamic()
-    {
-        // 1. Iniciar
-        $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
-            ->postJson('/api/test/iniciar');
+        $response->assertStatus(200);
         $sessionId = $response->json('session_id');
-        $q1Id = $response->json('pregunta_actual.id');
 
-        // 2. Responder Q1 (Static) -> Q2 (Static)
-        $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
-            ->postJson('/api/test/siguiente-pregunta', [
-                'session_id' => $sessionId,
-                'pregunta_id' => $q1Id,
-                'respuesta' => 'Crear cosas'
-            ]);
+        $this->assertNotNull($sessionId);
+        $this->assertEquals('warm_up', $response->json('current_phase'));
+        $this->assertEquals(0, $response->json('progress'));
 
-        $response->assertStatus(200);
-        $this->assertEquals(2, $response->json('pregunta.numero'));
-        $q2Id = $response->json('pregunta.id');
+        // 2. RETRIEVE SESSION FROM DB
+        $session = VocationalSession::find($sessionId);
+        $this->assertNotNull($session);
 
-        // 3. Responder Q2 (Static) -> Q3 (Static)
-        $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
-            ->postJson('/api/test/siguiente-pregunta', [
-                'session_id' => $sessionId,
-                'pregunta_id' => $q2Id,
-                'respuesta' => 'Diseñar'
-            ]);
-
-        $response->assertStatus(200);
-        $this->assertEquals(3, $response->json('pregunta.numero'));
-        $q3Id = $response->json('pregunta.id');
-
-        // 4. Responder Q3 (Static) -> Q4 (Dynamic - Gemini)
-        // Mock Gemini
-        Http::fake([
-            'generativelanguage.googleapis.com/*' => Http::response([
-                'candidates' => [
-                    [
-                        'content' => [
-                            'parts' => [
-                                [
-                                    'text' => '```json
-                                {
-                                    "texto": "Pregunta Dinámica 4",
-                                    "opciones": ["Opción A", "Opción B", "Opción C", "Opción D"]
-                                }
-                                ```'
-                                ]
-                            ]
-                        ]
-                    ]
+        // MOCK SETUP
+        // Setup GMock for generateQuestion
+        $this->geminiMock->shouldReceive('generateQuestion')
+            ->andReturn([
+                'question_text' => '¿Pregunta dinámica generada por Mock?',
+                'options' => [
+                    ['text' => 'Opción A', 'trait' => 'R_REALISTIC'],
+                    ['text' => 'Opción B', 'trait' => 'I_INVESTIGATIVE'],
+                    ['text' => 'Opción C', 'trait' => 'A_ARTISTIC'],
+                    ['text' => 'Opción D', 'trait' => 'S_SOCIAL']
                 ]
-            ], 200)
-        ]);
+            ]);
 
+        // Setup GMock for analyzeBatch (every 5 questions)
+        $this->geminiMock->shouldReceive('analyzeBatch')
+            ->andReturn([
+                'scores_delta' => ['realistic_score' => 5],
+                'new_skills' => [],
+                'discarded_areas' => [],
+                'next_focus_recommendation' => 'Keep going'
+            ]);
+
+        // 3. ANSWER 3 WARM-UP QUESTIONS (Static logic, no Gemini needed yet)
+        for ($i = 0; $i < 3; $i++) {
+            $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
+                ->postJson('/api/test/siguiente-pregunta', [
+                    'session_id' => $sessionId,
+                    'respuesta' => 'Opción de prueba'
+                ]);
+
+            $response->assertStatus(200);
+            // After 3 questions (0, 1, 2 answered), next question (index 3) might start triggering dynamic logic depending on implementation
+        }
+
+        // 4. ANSWER REMAINING QUESTIONS (Explore Phase - Dynamic)
+        // We expect questions 4 to 15. The engine triggers batch analysis every 5 questions.
+        // And generates questions using Gemini if no template.
+
+        // Loop until question 15
+        // We already did 3. So we loop 12 more times.
+        for ($i = 3; $i < 15; $i++) {
+            $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
+                ->postJson('/api/test/siguiente-pregunta', [
+                    'session_id' => $sessionId,
+                    'respuesta' => 'Opción Dinámica'
+                ]);
+
+            if ($response->json('finalizado')) {
+                break;
+            }
+
+            $response->assertStatus(200);
+        }
+
+        // 5. VERIFY COMPLETION
+        // The next call should return finalized=true
         $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
             ->postJson('/api/test/siguiente-pregunta', [
                 'session_id' => $sessionId,
-                'pregunta_id' => $q3Id,
-                'respuesta' => 'Estudio artístico'
+                'respuesta' => 'Última respuesta'
             ]);
 
         $response->assertStatus(200);
-        $this->assertEquals(4, $response->json('pregunta.numero'));
-        $this->assertEquals('Pregunta Dinámica 4', $response->json('pregunta.texto'));
-    }
+        $this->assertTrue($response->json('finalizado') ?? false);
+        $this->assertEquals('done', $response->json('current_phase'));
 
-    /** @test */
-    public function it_handles_escape_option_correctly()
-    {
-        // Iniciar
-        $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
-            ->postJson('/api/test/iniciar');
-        $sessionId = $response->json('session_id');
-        $q1Id = $response->json('pregunta_actual.id');
-
-        // Mock Gemini for regeneration (even though Q1 is static, escape triggers regeneration which calls Gemini)
-        // Wait, escape on static Q1? 
-        // If I escape Q1, it calls generarPreguntaProgresiva(1). 
-        // My logic says if n<=3 return static.
-        // So escaping a static question will just return the same static question?
-        // Let's check logic:
-        // generarPreguntaProgresiva(1) -> returns static Q1.
-        // So escaping Q1 just gives you Q1 again.
-        // That's acceptable for now, or I should handle it.
-        // But let's test escaping a dynamic question (e.g. Q4).
-
-        // Fast forward to Q4
-        // ... (skipping for brevity, let's just test Q1 escape for now to see behavior)
-
-        $response = $this->withHeaders(['Authorization' => "Bearer {$this->token}"])
-            ->postJson('/api/test/siguiente-pregunta', [
-                'session_id' => $sessionId,
-                'pregunta_id' => $q1Id,
-                'respuesta' => '[EXPLORAR_OTRAS_OPCIONES]'
-            ]);
-
-        $response->assertStatus(200)
-            ->assertJson(['regenerada' => true]);
-
-        // It should return Q1 again (because it's static)
-        $this->assertEquals(1, $response->json('pregunta.numero'));
+        // 6. CHECK DB STATE
+        $session->refresh();
+        $this->assertTrue($session->is_completed);
+        $this->assertEquals('done', $session->current_phase);
     }
 }

@@ -41,30 +41,25 @@ export default function TestIntro() {
         const token = localStorage.getItem("token");
         if (!token) return;
 
-        // Llamadas en paralelo: estado de sesión y resultados guardados
-        const [resEstado, resResults] = await Promise.all([
-          fetch(`${API_URL}/user/test/estado`, {
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Accept: "application/json" },
-          }).catch(() => null),
-          fetch(`${API_URL}/user/test/results`, {
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Accept: "application/json" },
-          }).catch(() => null),
-        ]);
+        // Consulta el estado real del motor RIASEC (vocational_sessions).
+        // Read-only: no crea sesión ni llama a Gemini.
+        const res = await fetch(`${API_URL}/test/estado`, {
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Accept: "application/json" },
+        }).catch(() => null);
 
-        const estadoData = resEstado ? await resEstado.json().catch(() => null) : null;
-        const resultsData = resResults ? await resResults.json().catch(() => null) : null;
+        if (!res || !res.ok) return;
 
-        const hasResults = resResults && resResults.ok && Array.isArray(resultsData?.results) && resultsData.results.length > 0;
-        const enCurso = resEstado && resEstado.ok && !!estadoData?.enCurso;
+        const data = await res.json().catch(() => null);
+        if (!data) return;
 
-        // Priorizar mostrar que el test está finalizado si existen resultados guardados.
-        if (hasResults) {
+        if (data.estado === 'completado') {
           setTestFinalizado(true);
           setTestPendiente(false);
-        } else if (enCurso) {
+        } else if (data.estado === 'en_progreso') {
           setTestPendiente(true);
           setTestFinalizado(false);
         } else {
+          // estado === 'nuevo' — no hay test guardado
           setTestPendiente(false);
           setTestFinalizado(false);
         }

@@ -10,6 +10,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         api: __DIR__ . '/../routes/api.php',
     )
+    ->withCommands([
+        \App\Console\Commands\VocationalStressTest::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Registrar middleware alias
         $middleware->alias([

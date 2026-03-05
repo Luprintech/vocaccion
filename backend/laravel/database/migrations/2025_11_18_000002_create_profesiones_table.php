@@ -21,6 +21,8 @@ class CreateProfesionesTable extends Migration
 
     public function down()
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('profesiones');
+        Schema::enableForeignKeyConstraints();
     }
 }

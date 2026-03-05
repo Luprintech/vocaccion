@@ -10,10 +10,48 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Obtener roles del contexto de autenticación
-  const { user, getPrimaryRole } = useAuth();
+  const { user, getPrimaryRole, token } = useAuth();
 
   // Usar el rol del contexto o el prop (para compatibilidad hacia atrás)
   const rol = getPrimaryRole() || "estudiante";
+
+  // ── Conteo de mensajes sin leer: UN SOLO polling para todo el header ────────
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [esProPlus, setEsProPlus] = useState(false);
+
+  useEffect(() => {
+    if (!user || !token) return;
+    const role = (user.roles && user.roles.length > 0) ? user.roles[0].nombre : localStorage.getItem('rol');
+    if (role !== 'estudiante') return;
+
+    // Verificar si es ProPlus
+    fetch('http://localhost:8000/api/estudiante/mi-suscripcion', {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const tipoPlan = data?.data?.tipo_plan || '';
+        const isProPlus = tipoPlan === 'pro_plus' || tipoPlan === 'Pro Plus';
+        setEsProPlus(isProPlus);
+      })
+      .catch(() => {});
+  }, [user, token]);
+
+  useEffect(() => {
+    if (!esProPlus || !token) return;
+    const fetchUnread = () => {
+      fetch('http://localhost:8000/api/estudiante/mensajes/conteo', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.success) setUnreadCount(data.count); })
+        .catch(() => {});
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 10000);
+    return () => clearInterval(interval);
+  }, [esProPlus, token]);
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Función para alternar la apertura/cierre del menú móvil
   const toggleMenu = () => {
@@ -147,7 +185,7 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
               </button>
             )}
 
-            <AuthButtonsDesktop />
+            <AuthButtonsDesktop unreadCount={unreadCount} />
 
             {/* BOTÓN HAMBURGUESA - Solo visible en móvil */}
             <button
@@ -215,7 +253,7 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
 
               {/* COLUMNA DERECHA: Opciones de Usuario */}
               <div className="flex flex-col space-y-1 border-l border-gray-100 pl-4">
-                <AuthButtonsMobile closeMenu={closeMenu} />
+                <AuthButtonsMobile closeMenu={closeMenu} unreadCount={unreadCount} />
               </div>
 
             </div>
@@ -227,15 +265,14 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
 }
 
 // Botones de autenticación para desktop (muestran usuario si está logueado)
-function AuthButtonsDesktop() {
+function AuthButtonsDesktop({ unreadCount = 0 }) {
   const { user, logout, token } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null);
   const [profileData, setProfileData] = useState(null);
   const [esProPlus, setEsProPlus] = useState(false);
-  const [esPro, setEsPro] = useState(false); // Estado para detectar si es Pro o superior
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [esPro, setEsPro] = useState(false);
 
   const role = (user && user.roles && user.roles.length > 0) ? user.roles[0].nombre : (typeof window !== 'undefined' ? localStorage.getItem('rol') : null)
 
@@ -288,34 +325,8 @@ function AuthButtonsDesktop() {
     fetchProfileData();
   }, [user, token, role]);
 
-  // Polling para mensajes sin leer (solo Pro Plus)
-  useEffect(() => {
-    let interval;
-    if (esProPlus && token) {
-      const fetchUnread = async () => {
-        try {
-          const res = await fetch('http://localhost:8000/api/estudiante/mensajes/conteo', {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json',
-            }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success) {
-              setUnreadCount(data.count);
-            }
-          }
-        } catch (e) {
-          // Silent error
-        }
-      };
-      
-      fetchUnread();
-      interval = setInterval(fetchUnread, 10000); // Check every 10s
-    }
-    return () => clearInterval(interval);
-  }, [esProPlus, token]);
+  // Polling para mensajes sin leer — eliminado: ahora lo gestiona el Header padre
+  // (unreadCount llega como prop)
 
   const handleLogout = async () => {
     try {
@@ -489,14 +500,12 @@ function AuthButtonsDesktop() {
   )
 }
 
-function AuthButtonsMobile({ closeMenu }) {
+function AuthButtonsMobile({ closeMenu, unreadCount = 0 }) {
   const { user, logout, token } = useAuth()
   const navigate = useNavigate()
-  // Ya no necesitamos cargar profileData para la imagen/nombre si no los vamos a mostrar,
-  // pero mantenemos la lógica de la suscripción ProPlus.
   const [esProPlus, setEsProPlus] = useState(false);
   const [esPro, setEsPro] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // unreadCount llega como prop desde Header — sin polling aquí
 
   const role = (user && user.roles && user.roles.length > 0) ? user.roles[0].nombre : (typeof window !== 'undefined' ? localStorage.getItem('rol') : null)
 
@@ -524,34 +533,7 @@ function AuthButtonsMobile({ closeMenu }) {
     fetchSubscription();
   }, [user, token, role]);
 
-  // Polling para mensajes sin leer en movil
-  useEffect(() => {
-    let interval;
-    if (esProPlus && token) {
-      const fetchUnread = async () => {
-        try {
-          const res = await fetch('http://localhost:8000/api/estudiante/mensajes/conteo', {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json',
-            }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success) {
-              setUnreadCount(data.count);
-            }
-          }
-        } catch (e) {
-          // Silent
-        }
-      };
-      
-      fetchUnread();
-      interval = setInterval(fetchUnread, 10000);
-    }
-    return () => clearInterval(interval);
-  }, [esProPlus, token]);
+  // Polling de conteo eliminado — el padre Header gestiona unreadCount como prop
 
   const handleLogout = async () => {
     try { await logoutUser() } catch (err) { console.error(err) }

@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      * 
@@ -17,22 +16,22 @@ return new class extends Migration
         Schema::create('videollamadas', function (Blueprint $table) {
             $table->id();
             $table->foreignId('orientador_id')
-                  ->constrained('usuarios')
-                  ->cascadeOnDelete()
-                  ->comment('Orientador que agenda la llamada');
+                ->constrained('usuarios')
+                ->cascadeOnDelete()
+                ->comment('Orientador que agenda la llamada');
             $table->foreignId('estudiante_id')
-                  ->constrained('usuarios')
-                  ->cascadeOnDelete()
-                  ->comment('Estudiante invitado');
+                ->constrained('usuarios')
+                ->cascadeOnDelete()
+                ->comment('Estudiante invitado');
             $table->date('fecha')->comment('Fecha de la videollamada');
             $table->time('hora')->comment('Hora de inicio');
             $table->unsignedInteger('duracion')->default(30)->comment('Duración en minutos');
             $table->enum('estado', ['programada', 'en_curso', 'completada', 'cancelada'])
-                  ->default('programada');
+                ->default('programada');
             $table->string('enlace', 255)->nullable()->comment('Enlace a la sala de videollamada');
             $table->text('notas')->nullable()->comment('Notas o tema a tratar');
             $table->timestamps();
-            
+
             // Índices para búsquedas rápidas
             $table->index('orientador_id');
             $table->index('estudiante_id');
@@ -46,6 +45,8 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('videollamadas');
+        Schema::enableForeignKeyConstraints();
     }
 };

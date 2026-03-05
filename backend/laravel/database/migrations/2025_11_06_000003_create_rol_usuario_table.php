@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Ejecutar las migraciones.
      */
@@ -16,10 +15,10 @@ return new class extends Migration
             $table->foreignId('usuario_id')->constrained('usuarios')->onDelete('cascade');
             $table->foreignId('rol_id')->constrained('roles')->onDelete('cascade');
             $table->timestamps();
-            
+
             // Índice único compuesto para evitar duplicados
             $table->unique(['usuario_id', 'rol_id']);
-            
+
             // Índices para optimización de consultas
             $table->index('usuario_id');
             $table->index('rol_id');
@@ -31,6 +30,8 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('rol_usuario');
+        Schema::enableForeignKeyConstraints();
     }
 };
