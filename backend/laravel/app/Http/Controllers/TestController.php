@@ -491,9 +491,6 @@ class TestController extends Controller
 
         try {
             // 1. Ask Gemini for a concise English plain-text search term.
-            // generateImageSearchTerm() calls callGemini with expectJson=false
-            // and returns candidates[0].content.parts[0].text directly.
-            // Http::fake in tests intercepts this and returns 'Software Developer'.
             $searchTerm = $this->gemini->generateImageSearchTerm($profesion);
 
             if (empty($searchTerm)) {
@@ -503,23 +500,32 @@ class TestController extends Controller
             // 2. Search Pexels for a matching image
             $imagenUrl = null;
             $source = 'pexels';
+            $pexelsKey = config('services.pexels.key', '');
 
-            $pexelsResponse = \Illuminate\Support\Facades\Http::withHeaders([
-                'Authorization' => config('services.pexels.key', ''),
-            ])->get('https://api.pexels.com/v1/search', [
-                        'query' => $searchTerm,
-                        'per_page' => 1,
-                        'orientation' => 'landscape',
-                    ]);
+            if (!$pexelsKey) {
+                Log::warning('Pexels API key not configured');
+                $source = 'error_no_key';
+            } else {
+                $pexelsResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => $pexelsKey,
+                ])->get('https://api.pexels.com/v1/search', [
+                    'query' => $searchTerm,
+                    'per_page' => 1,
+                    'orientation' => 'landscape',
+                ]);
 
-            if ($pexelsResponse->successful()) {
-                $photos = $pexelsResponse->json('photos');
-                $imagenUrl = $photos[0]['src']['large2x'] ?? null;
-            }
-
-            if (!$imagenUrl) {
-                $source = 'fallback_error';
-                $imagenUrl = '/images/default-profession.jpg';
+                if ($pexelsResponse->successful()) {
+                    $photos = $pexelsResponse->json('photos');
+                    if (!empty($photos)) {
+                        $imagenUrl = $photos[0]['src']['large2x'] ?? $photos[0]['src']['large'] ?? null;
+                    } else {
+                        Log::info("No photos found for: $searchTerm");
+                        $source = 'no_results';
+                    }
+                } else {
+                    Log::warning('Pexels API error: ' . $pexelsResponse->status());
+                    $source = 'pexels_error';
+                }
             }
 
             return response()->json([
@@ -530,13 +536,14 @@ class TestController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error generando imagen: ' . $e->getMessage());
+            Log::error('Error generando imagen: ' . $e->getMessage(), ['profesion' => $profesion]);
             return response()->json([
-                'success' => true,
-                'source' => 'fallback_error',
+                'success' => false,
                 'term' => $profesion,
-                'imagenUrl' => '/images/default-profession.jpg',
-            ]);
+                'source' => 'exception',
+                'error' => $e->getMessage(),
+                'imagenUrl' => null,
+            ], 200);
         }
     }
 }

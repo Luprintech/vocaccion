@@ -178,7 +178,7 @@ EOT;
      */
     public function generateImageSearchTerm(string $profesion): string
     {
-        $systemInstruction = 'Translate the following Spanish profession name into a concise English search term (2-4 words max) suitable for an image search. Return ONLY the search term, no explanation.';
+        $systemInstruction = 'For the given Spanish profession name, generate a concise English search term (2-4 words max) that captures a typical work scene or activity for that profession, suitable for a stock photo search. Focus on the work environment or activity, not just the job title. Return ONLY the search term, no explanation.';
         $prompt = $profesion;
 
         $result = $this->callGemini($prompt, false, $systemInstruction);

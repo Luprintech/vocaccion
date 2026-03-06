@@ -709,23 +709,24 @@ export default function ResultadosTest() {
                   <Lightbulb className="w-5 h-5 text-purple-600" />
                   Sobre tus resultados
                 </h3>
-                <p className="text-gray-600 leading-relaxed text-sm md:text-base">
-                  Estas profesiones se han seleccionado según tus respuestas e intereses.
-                  Explora cada una con calma, investiga sus salidas laborales y elige la que más se alinee con tu futuro.
-                  Recuerda: <strong className="text-purple-700">puedes cambiar tu elección en cualquier momento</strong> desde esta misma página o desde "Mi Profesión".
+                <p className="text-gray-600 leading-relaxed text-sm md:text-base text-justify">
+                  Este informe analiza tu personalidad vocacional utilizando el modelo RIASEC de Holland, uno de los sistemas más utilizados en orientación profesional.
+                  Tu perfil combina diferentes dimensiones (Realista, Investigador, Artístico, Social, Emprendedor y Convencional) que revelan los entornos laborales, 
+                  habilidades y roles donde puedes destacar naturalmente. Puedes elegir una de las profesiones que te indicamos y 
+                  <strong className="text-purple-700"> puedes cambiar tu elección en cualquier momento</strong> desde esta misma página o desde "Mi Profesión".
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>Análisis personalizado</span>
+                    <span>Perfil vocacional basado en RIASEC</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                    <span>Salidas laborales verificadas</span>
+                    <span>Análisis de tus fortalezas profesionales</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span>Imágenes reales de profesiones</span>
+                    <span>Caminos profesionales compatibles</span>
                   </div>
                 </div>
               </div>

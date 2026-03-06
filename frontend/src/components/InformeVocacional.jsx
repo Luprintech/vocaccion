@@ -11,17 +11,24 @@
  * -----------------------------------------------------------
  */
 import React, { useMemo, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
   PolarRadiusAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
   Zap, Briefcase, BookOpen, TrendingUp, Star,
-  Download, UserCheck, Brain, Target, Lightbulb, 
-  ArrowRight, CheckCircle, GraduationCap, MapPin, 
+  Download, UserCheck, Brain, Target, Lightbulb,
+  ArrowRight, CheckCircle, GraduationCap, MapPin,
   Flame, Sparkles, Eye, Target as TargetIcon,
-  ChevronRight
+  ChevronRight, Check, RotateCcw
 } from 'lucide-react';
+import {
+  getObjetivoProfesional,
+  saveObjetivoProfesional,
+  deleteObjetivoProfesional,
+  generateImageForProfession
+} from '../api';
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -309,11 +316,18 @@ function parseMarkdown(md) {
         .filter(l => l && l !== '*' && l !== '-');
 
       const formacionRaw = extractSub('Formaci[óo]n recomendada');
-      const formacionText = formacionRaw.replace(/^[ \t]*[-*]\s*/gm, '').replace(/\*\*/g, '').trim();
       const formacionLines = formacionRaw.split(/\n/)
         .map(l => l.replace(/^[ \t]*[-*]\s*/, '').replace(/\*\*/g, '').trim())
         .filter(l => l && l !== '*' && l !== '-');
-      const formacion = formacionLines.length > 1 ? formacionLines : formacionText;
+      
+      // Si no hay saltos de línea pero hay múltiples oraciones, dividir por puntos
+      let formacion = formacionLines;
+      if (formacionLines.length === 1 && formacionLines[0]) {
+        const sentences = formacionLines[0].split(/(?<=[.!?])\s+/).filter(Boolean);
+        if (sentences.length > 1) {
+          formacion = sentences;
+        }
+      }
 
       const stepsRaw = extractSub('Primeros(?: 3)? pasos');
       const steps = stepsRaw.split(/\n/)
@@ -649,8 +663,51 @@ function SuperpowerBlock({ power, index }) {
   );
 }
 
-function CareerBlock({ career, rank }) {
+function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onClearSelection }) {
   const col = compatColour(career.compat);
+  const navigate = useNavigate();
+  const [careerImage, setCareerImage] = React.useState(null);
+  const [imageLoading, setImageLoading] = React.useState(true);
+
+  console.log('🎴 CareerBlock render:', { careerTitle: career.title, isSelected, isActionLoading });
+
+  React.useEffect(() => {
+    let mounted = true;
+    const cacheKey = `career_image_v2_${career.title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+
+    const fetchImage = async () => {
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          if (mounted) {
+            setCareerImage(cached);
+            setImageLoading(false);
+          }
+          return;
+        }
+
+        const data = await generateImageForProfession({ profesion: career.title });
+        const imageUrl = data?.imagenUrl || null;
+        if (imageUrl) {
+          localStorage.setItem(cacheKey, imageUrl);
+          if (mounted) {
+            setCareerImage(imageUrl);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching career image:', err);
+      } finally {
+        if (mounted) {
+          setImageLoading(false);
+        }
+      }
+    };
+
+    fetchImage();
+    return () => {
+      mounted = false;
+    };
+  }, [career.title]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-8 mb-6 shadow-sm hover:shadow-md transition-shadow">
@@ -679,8 +736,25 @@ function CareerBlock({ career, rank }) {
         </div>
       </div>
 
+      {/* Imagen representativa */}
+      {careerImage && (
+        <div className="mb-8 rounded-xl overflow-hidden border border-gray-100 h-64 bg-gray-100">
+          <img
+            src={careerImage}
+            alt={career.title}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.currentTarget.src = '/images/default-profession.jpg';
+            }}
+          />
+        </div>
+      )}
+      {imageLoading && (
+        <div className="mb-8 rounded-xl overflow-hidden border border-gray-100 h-64 bg-gradient-to-r from-gray-100 to-gray-200 animate-pulse" />
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 text-justify">
-        
+
         {/* Columna Izquierda: Por qué encaja + Salidas */}
         <div className="space-y-8">
           {career.why && (
@@ -709,6 +783,42 @@ function CareerBlock({ career, rank }) {
               </ul>
             </div>
           )}
+
+          <div className="pt-2">
+            {!isSelected ? (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    console.log('🔘 Click en Elegir profesión:', { career: career.title, image: careerImage });
+                    onSelect(career, careerImage);
+                  }}
+                  disabled={isActionLoading}
+                  className="inline-flex items-center justify-center gap-2 min-w-[220px] px-7 py-3.5 rounded-xl bg-purple-600 text-white text-base font-bold hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg"
+                >
+                  {isActionLoading ? 'Guardando...' : 'Elegir profesión'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('/mi-profesion')}
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-green-500 text-white text-sm font-semibold hover:bg-green-600 transition-colors shadow"
+                >
+                  <Check size={16} /> Ir a Mi Profesión
+                </button>
+                <button
+                  type="button"
+                  onClick={onClearSelection}
+                  disabled={isActionLoading}
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-300 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw size={16} /> Cambiar
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Columna Derecha: Formación + Primeros Pasos */}
@@ -872,9 +982,92 @@ function TableOfContents() {
 
 export default function InformeVocacional({ markdown, onDownload }) {
   const report = useMemo(() => parseMarkdown(markdown), [markdown]);
+  const [selectedCareerTitle, setSelectedCareerTitle] = useState(null);
+  const [careerActionLoading, setCareerActionLoading] = useState(false);
   const hasStructure = report && (
     report.riasecScores.length > 0 || report.superpowers.length > 0 || report.careers.length > 0
   );
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSelectedCareer = async () => {
+      try {
+        console.log('🔄 Cargando profesión seleccionada del backend...');
+        const res = await getObjetivoProfesional();
+        console.log('📥 Respuesta de objetivo profesional:', res);
+        if (!mounted) return;
+        const title = res?.objetivo?.profesion?.titulo || null;
+        console.log('📌 Profesión seleccionada cargada:', title);
+        setSelectedCareerTitle(title);
+      } catch (err) {
+        console.error('❌ Error al cargar profesión seleccionada:', err);
+        if (mounted) setSelectedCareerTitle(null);
+      }
+    };
+
+    loadSelectedCareer();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleSelectCareer = async (career, imageUrl) => {
+    console.log('🎯 Intentando seleccionar profesión:', career.title);
+    setCareerActionLoading(true);
+    try {
+      const payload = {
+        profesion: {
+          titulo: career.title,
+          descripcion: career.why || '',
+          salidas: Array.isArray(career.salidas) ? career.salidas : [],
+          formacion_recomendada: Array.isArray(career.formacion)
+            ? career.formacion
+            : (career.formacion ? [career.formacion] : []),
+          imagen_url: imageUrl || '/images/default-profession.jpg'
+        }
+      };
+
+      console.log('📤 Enviando payload:', payload);
+      const res = await saveObjetivoProfesional(payload);
+      console.log('📥 Respuesta del backend:', res);
+      
+      if (res?.success) {
+        console.log('✅ Guardado exitoso, actualizando estado a:', career.title);
+        setSelectedCareerTitle(career.title);
+        try {
+          localStorage.setItem('objetivo_changed', Date.now().toString());
+        } catch (e) {
+          // ignore storage failures
+        }
+      } else {
+        console.error('❌ Backend no devolvió success:', res);
+      }
+    } catch (err) {
+      console.error('❌ Error al guardar profesion objetivo:', err);
+    } finally {
+      setCareerActionLoading(false);
+    }
+  };
+
+  const handleClearCareerSelection = async () => {
+    setCareerActionLoading(true);
+    try {
+      const res = await deleteObjetivoProfesional();
+      if (res?.success) {
+        setSelectedCareerTitle(null);
+        try {
+          localStorage.setItem('objetivo_changed', Date.now().toString());
+        } catch (e) {
+          // ignore storage failures
+        }
+      }
+    } catch (err) {
+      console.error('No se pudo limpiar la profesion objetivo', err);
+    } finally {
+      setCareerActionLoading(false);
+    }
+  };
 
   if (!markdown) return null;
 
@@ -959,12 +1152,6 @@ export default function InformeVocacional({ markdown, onDownload }) {
                 </p>
               )}
 
-              {/* Radar chart */}
-              <h3 className="text-lg font-bold text-gray-900 mb-4">
-                Gráfico de tu Perfil
-              </h3>
-              <RiasecRadar scores={report.riasecScores} />
-
               {/* Dimension cards */}
               {report.riasecScores?.length > 0 && (() => {
                 const sorted = [...report.riasecScores].sort((a, b) => b.pct - a.pct);
@@ -1026,6 +1213,14 @@ export default function InformeVocacional({ markdown, onDownload }) {
                       </div>
                     )}
 
+                    {/* Radar chart */}
+                    <div className="pt-6">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">
+                        Gráfico de tu Perfil
+                      </h3>
+                      <RiasecRadar scores={report.riasecScores} />
+                    </div>
+
                     {/* Conclusion / synthesis paragraph */}
                     {report.hollandConclusion && (
                       <div
@@ -1073,7 +1268,21 @@ export default function InformeVocacional({ markdown, onDownload }) {
                 <p className="text-base text-gray-600 mb-8">
                   Perfiles profesionales analizados exhaustivamente contra tu código Holland. Incluyen porcentajes de compatibilidad, salidas reales y la hoja de ruta académica necesaria.
                 </p>
-                {report.careers.map((c, i) => <CareerBlock key={i} career={c} rank={i + 1} />)}
+                {report.careers.map((c, i) => {
+                  const isSelected = selectedCareerTitle === c.title;
+                  console.log('🔍 Comparando:', { selectedCareerTitle, careerTitle: c.title, isSelected });
+                  return (
+                    <CareerBlock
+                      key={i}
+                      career={c}
+                      rank={i + 1}
+                      isSelected={isSelected}
+                      isActionLoading={careerActionLoading}
+                      onSelect={handleSelectCareer}
+                      onClearSelection={handleClearCareerSelection}
+                    />
+                  );
+                })}
               </DocSection>
             )}
 
