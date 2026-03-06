@@ -1,0 +1,21 @@
+{
+  "cleanedParagraphs": [
+    "Analicemos cada dimensión dominante:"
+  ],
+  "dynamicDetails": {
+    "I": {
+      "description": "Esta es tu dimensión más fuerte. Refleja una profunda curiosidad intelectual y un deseo innato de explorar ideas, resolver problemas complejos y comprender cómo funcionan las cosas. Te sientes atraído por el análisis de datos, la investigación, la teoría y la experimentación.",
+      "workStyle": "Independiente, analítico, basado en la lógica y la evidencia. Te gusta tener tiempo para pensar, investigar y profundizar en los temas.",
+      "tasks": "Diseñar experimentos, analizar datos, desarrollar teorías, investigar nuevas soluciones, resolver enigmas complejos, escribir informes técnicos o científicos.",
+      "environment": "Un ambiente que fomente la autonomía intelectual, el pensamiento crítico y el acceso a recursos para la investigación. Laboratorios, centros de I+D, universidades, think tanks o startups innovadoras serían ideales.",
+      "strengths": "Pensamiento crítico, objetividad, precisión, curiosidad, capacidad de síntesis, lógica, habilidades de investigación."
+    },
+    "E": {
+      "description": "Tu segunda dimensión más destacada. Complementa tu naturaleza investigadora con un fuerte impulso hacia la acción, el liderazgo y la influencia. No te conformas con solo entender; quieres aplicar ese conocimiento para generar impacto, iniciar proyectos y dirigir a otros hacia un objetivo.",
+      "workStyle": "Dinámico, persuasivo, orientado a resultados, estratégico y con una clara vocación de liderazgo.",
+      "tasks": null,
+      "environment": null,
+      "strengths": null
+    }
+  }
+}

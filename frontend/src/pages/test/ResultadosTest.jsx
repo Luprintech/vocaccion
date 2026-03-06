@@ -32,6 +32,7 @@ import { getUserResults, saveObjetivoProfesional, getObjetivoProfesional, delete
 import { useToast } from '@/components/ToastProvider';
 import ProfesionCard from '@/components/ProfesionCard';
 import PantallaEsperaResultados from '@/components/PantallaEsperaResultados';
+import InformeVocacional from '@/components/InformeVocacional';
 
 // Renderiza Markdown básico a JSX sin dependencias externas
 function renderMarkdown(text) {
@@ -732,55 +733,15 @@ export default function ResultadosTest() {
           </div>
         </div>
 
-        {/* Informe RIASEC en Markdown */}
+        {/* Informe RIASEC estructurado Full-Width Dashboard */}
         {informeMarkdown && (
-          <div className="max-w-4xl mx-auto mb-12">
-            <div className="bg-white rounded-2xl shadow-lg border-2 border-purple-100 overflow-hidden">
-              {/* Header del informe - Clickable to expand */}
-              <div 
-                onClick={() => setIsInformeExpanded(!isInformeExpanded)}
-                className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-purple-600 to-green-600 cursor-pointer select-none"
-              >
-                <div className="flex items-center gap-3">
-                  <FileText className="w-5 h-5 text-white" />
-                  <span className="text-white font-bold text-lg">Tu Informe Vocacional</span>
-                </div>
-                
-                <div className="flex items-center gap-2 text-white/90">
-                  <span className="text-sm font-medium hidden sm:inline">
-                    {isInformeExpanded ? 'Cerrar informe' : 'Pulsa para leer el informe completo'}
-                  </span>
-                  {isInformeExpanded ? (
-                    <ChevronUp className="w-5 h-5" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 animate-bounce" />
-                  )}
-                </div>
-              </div>
-
-              {/* Contenido del informe */}
-              {isInformeExpanded && (
-                <div className="flex flex-col animate-fadeIn">
-                  <div className="px-8 py-6 text-sm md:text-base text-justify markdown-content border-b border-gray-100">
-                    {renderMarkdown(informeMarkdown)}
-                  </div>
-                  
-                  {/* Footer del informe - Botón de descarga al final */}
-                  <div className="bg-gray-50 px-8 py-4 flex justify-end">
-                    <button
-                      onClick={handleDownloadReport}
-                      className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-6 py-2.5 rounded-full text-sm font-semibold transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
-                    >
-                      <Download className="w-4 h-4" />
-                      Descargar informe en PDF
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+          <div className="w-full mb-16 animate-fadeIn">
+            <InformeVocacional
+              markdown={informeMarkdown}
+              onDownload={handleDownloadReport}
+            />
           </div>
         )}
-
         {/* Grid de tarjetas profesionales con componente reutilizable */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-12">
           {profesiones.map((p, idx) => {

@@ -249,7 +249,7 @@ Describe el código RIASEC del usuario (2-3 letras dominantes). Explica qué sig
 Incluye una tabla con los 6 rasgos RIASEC, su porcentaje y una valoración (★★★★★).
 
 ## 2. Retrato Psicológico-Vocacional
-Parágrafo de 150-200 palabras que describa la personalidad laboral del usuario de forma inspiradora y realista. Menciona cómo sus valores, estilo cognitivo y preferencias encajan con las dimensiones Holland identificadas.
+Parágrafo de 150-200 palabras que describa la personalidad laboral del usuario de forma inspiradora y realista. Menciona cómo sus valores, estilo cognitivo y preferencias encajan con las dimensiones Holland identificadas. **[IMPORTANTE: Usa texto en negrita (**) orgánicamente para resaltar los adjetivos, conceptos clave y fortalezas principales dentro del párrafo].**
 
 ## 3. Tus Superpoderes Profesionales
 Lista de exactamente 5 habilidades clave (con bullet points), cada una con:
