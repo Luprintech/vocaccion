@@ -1,17 +1,17 @@
-﻿/**
- * InformeVocacional.jsx  (v4 – SaaS Premium / Dashboard Layout)
- * -----------------------------------------------------------
- * Transforms raw Gemini Markdown into a structure inspired by
- * Stripe / Linear / Notion / McKinsey reports.
- * 
- * Features:
- * - Two-column layout (Left: Sticky TOC, Right: Report body)
- * - Maximum width utilisation while preserving line-length readability
- * - Beautiful typography, subtle rulers, minimalist aesthetics
- * -----------------------------------------------------------
+/**
+ * InformeVocacional.jsx  (Página unificada – Dashboard + Resultados)
+ * -------------------------------------------------------------------
+ * Combina la lógica de carga de datos de ResultadosTest con el dashboard
+ * visual de InformeVocacional en un solo archivo.
+ *
+ * - Carga resultados desde location.state o desde el backend (getUserResults)
+ * - Parsea el markdown generado por Gemini a una estructura RIASEC detallada
+ * - Renderiza el dashboard premium con TOC, radar chart, career cards, etc.
+ * - Gestiona la selección de profesión objetivo (guardar/cambiar/eliminar)
+ * - Incluye descarga PDF y secciones informativas
  */
-import React, { useMemo, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
   PolarRadiusAxis, Tooltip, ResponsiveContainer,
@@ -24,11 +24,14 @@ import {
   ChevronRight, Check, RotateCcw
 } from 'lucide-react';
 import {
+  getUserResults,
   getObjetivoProfesional,
   saveObjetivoProfesional,
   deleteObjetivoProfesional,
   generateImageForProfession
-} from '../api';
+} from '../../api';
+import { useToast } from '@/components/ToastProvider';
+import PantallaEsperaResultados from '@/components/PantallaEsperaResultados';
 
 // ─── Constants ────────────────────────────────────────────
 
@@ -136,20 +139,17 @@ function parseMarkdown(md) {
   const hollandText = sectionText('holland') || sectionText('análisis') || sectionText('codigo') || sectionText('analisis');
   const scoreMap = {};
 
-  // 1. Intentar atrapar formato con puntos: R (Realista/Manual): 21 pts (38.2%)
   const scoreRegex = /([RIASEC])\s*\([^)]+\)[:\s]+(\d+)\s*pts[^(]*\((\d+(?:\.\d+)?)%\)/gi;
   let m;
   while ((m = scoreRegex.exec(hollandText)) !== null) {
     scoreMap[m[1].toUpperCase()] ??= { value: +m[2], pct: +m[3] };
   }
 
-  // 2. Intentar atrapar formato tabla antiguo: | R | Realista | 21 | 38.2% |
   const tableRowRx = /\|\s*([RIASEC])\s*\|[^|]*\|\s*(\d+)\s*\|\s*(\d+(?:\.\d+)?)%/gi;
   while ((m = tableRowRx.exec(hollandText)) !== null) {
     scoreMap[m[1].toUpperCase()] ??= { value: +m[2], pct: +m[3] };
   }
 
-  // 3. Intentar atrapar formato tabla nuevo o texto libre: | Realista (R) | 15.4% |
   const keywordPercentRx = /(Realista|Investigador|Art[íi]stico|Social|Emprendedor|Convencional)[^\d%]{0,30}?(\d+(?:\.\d+)?)\s*%/gi;
   const labelToDim = { 'realista':'R', 'investigador':'I', 'artístico':'A', 'artistico':'A', 'social':'S', 'emprendedor':'E', 'convencional':'C' };
   
@@ -167,19 +167,18 @@ function parseMarkdown(md) {
     result.riasecCode = [...result.riasecScores].sort((a, b) => b.pct - a.pct).filter(d => d.pct > 5).slice(0, 3).map(d => d.dim).join('');
   }
   
-  // Extraer código explícito - múltiples patrones que usa Gemini
   const codePatterns = [
-    /c[oó]digo\s*(?:holland)?[\s:.]*\*?\*?([RIASEC]{2,3})\b/i,                // "código IE" / "código Holland IE"
-    /\*\*([RIASEC]{2,3})\*\*\s*(?:\([^)]+\))?/,                               // "**IE** (Investigador...)"
-    /perfil\s+(?:dominante\s+)?[:\s]*\*?\*?([RIASEC]{2,3})\b/i,               // "perfil dominante: IE"
-    /tipo\s+(?:holland\s+)?[:\s]*\*?\*?([RIASEC]{2,3})\b/i,                   // "tipo Holland: IE"
-    /\b([RIASEC]{2,3})\s*(?:\([A-Za-záéíóúÁÉÍÓÚ\-\s,]+\))/,                  // "IE (Investigador-Emprendedor)"
+    /c[oó]digo\s*(?:holland)?[\s:.]*\*?\*?([RIASEC]{2,3})\b/i,
+    /\*\*([RIASEC]{2,3})\*\*\s*(?:\([^)]+\))?/,
+    /perfil\s+(?:dominante\s+)?[:\s]*\*?\*?([RIASEC]{2,3})\b/i,
+    /tipo\s+(?:holland\s+)?[:\s]*\*?\*?([RIASEC]{2,3})\b/i,
+    /\b([RIASEC]{2,3})\s*(?:\([A-Za-záéíóúÁÉÍÓÚ\-\s,]+\))/,
   ];
   let explicitCode = null;
   for (const rx of codePatterns) {
-    const m = hollandText.match(rx);
-    if (m && /^[RIASEC]{2,3}$/.test(m[1])) {
-      explicitCode = m[1].toUpperCase();
+    const m2 = hollandText.match(rx);
+    if (m2 && /^[RIASEC]{2,3}$/.test(m2[1])) {
+      explicitCode = m2[1].toUpperCase();
       break;
     }
   }
@@ -187,39 +186,29 @@ function parseMarkdown(md) {
   if (explicitCode) {
     result.riasecCode = explicitCode;
   } else if (Object.keys(scoreMap).length > 0) {
-    // Gap-based algorithm: include dimension only if it's within 15 percentage
-    // points of the top dimension OR there's no big drop before it
     const sorted = [...result.riasecScores].sort((a, b) => b.pct - a.pct).filter(d => d.pct > 0);
-    const top = sorted[0]?.pct ?? 0;
     const selected = [sorted[0]];
     for (let i = 1; i < sorted.length && i < 3; i++) {
       const gap = sorted[i - 1].pct - sorted[i].pct;
-      // Stop if this dimension is < 12% of the profile or there's a drop > 12 pts
       if (sorted[i].pct < 12 || gap > 12) break;
       selected.push(sorted[i]);
     }
     result.riasecCode = selected.map(d => d.dim).join('');
   }
 
-  // Extract explanation lines by ignoring table score rows
   result.hollandExplicacion = hollandText
     .split('\n')
     .filter(line => {
-      // Ignorar filas que matem puntuaciones
       if (scoreRegex.test(line) || tableRowRx.test(line) || keywordPercentRx.test(line)) return false;
-      // Ignorar cabeceras y separadores de tablas markdown genéricas (| Rasgo RIASEC | ... |)
       if (line.match(/^\s*\|.*\|.*\s*$/) || line.match(/\|\s*[:-]+\s*\|/)) return false;
-      // Ignorar frases introductorias a la tabla
       if (line.match(/A continuación.*(desglose|puntuaciones|tabla)/i)) return false;
-      // Ignorar restos huérfanos con "pts" o porcentajes dentro de barras
       if (line.includes('pts') || line.match(/\d+%\s*\|/)) return false;
       return true;
     })
     .join('\n')
-    .replace(/^#+.*$/mg, '') // remove headings
+    .replace(/^#+.*$/mg, '')
     .trim();
 
-  // 1b. Parse Holland dimension detail blocks + intro + conclusion
   const hollandParsed = parseHollandDimensions(result.hollandExplicacion);
   result.hollandDimensions = hollandParsed.dims;
   result.hollandIntro      = hollandParsed.intro;
@@ -231,24 +220,19 @@ function parseMarkdown(md) {
   // 3. Superpowers
   const spText = sectionText('superpod') || sectionText('habilidades clave');
   if (spText) {
-    // Dividir usando un regex que solo corta cuando aparece un item de lista cuyo texto en negrita NO es "Por qué..." o "Cómo..."
-    // Esto previene que se fragmente la tarjeta si la IA usa viñetas anidadas para el Por qué y el Cómo.
     const spBlocks = spText.split(/\n(?=^[ \t]*[-*\d]+\.?\s*\*\*(?!\s*(?:Por qu[ée]|C[óo]mo|Qu[ée] significa)))/im);
     
     result.superpowers = spBlocks.map((block, index) => {
-      // Intentar extraer el título del superpoder
       const nameMatch = block.match(/(?:^|\n)[ \t]*[-*\d]+\.?\s*\*\*([^*]+)\*\*/);
       if (!nameMatch) {
-         if (index === 0) return null; // Ignorar el párrafo introductorio si lo hay
+         if (index === 0) return null;
          return null;
       }
       
       const name = nameMatch[1].replace(/^[\d.]+\s*/, '').replace(/:$/, '').trim();
       const rest = block.replace(nameMatch[0], '').trim();
 
-      // Función robusta de extracción para las subsecciones
       const extractSub = (labelRegexStr) => {
-        // Busca la etiqueta (ej "Por qué lo tienes:") y atrapa todo hasta otra etiqueta o el final
         const rx = new RegExp(`(?:\\*?\\*?${labelRegexStr}\\*?\\*?\\s*:?)\\s*([\\s\\S]*?)(?=\\n[ \\t]*(?:[-*]|\\d+\\.)?\\s*\\*?\\*?(?:Por qu[ée]|C[óo]mo|Qu[ée] significa)\\b|$)`, 'i');
         const match = rest.match(rx);
         if (match && match[1]) {
@@ -261,7 +245,6 @@ function parseMarkdown(md) {
       let reason  = extractSub('Por qué lo tienes|Por qué la tienes|Por qué|Tienes esta|Por qué encaja') || '';
       let how     = extractSub('Cómo puedes potenciarla|Cómo potenciarla|Cómo potenciar|Cómo puedes potenciarlo|Aprovecha|Cómo desarrollarla') || '';
 
-      // Fallback si la IA no estructuró las secciones con títulos
       if (!meaning && !reason && !how) {
         const sentences = rest.split(/(?<=[.!?])\s+/).filter(Boolean);
         const chunk = Math.max(1, Math.ceil(sentences.length / 3));
@@ -320,7 +303,6 @@ function parseMarkdown(md) {
         .map(l => l.replace(/^[ \t]*[-*]\s*/, '').replace(/\*\*/g, '').trim())
         .filter(l => l && l !== '*' && l !== '-');
       
-      // Si no hay saltos de línea pero hay múltiples oraciones, dividir por puntos
       let formacion = formacionLines;
       if (formacionLines.length === 1 && formacionLines[0]) {
         const sentences = formacionLines[0].split(/(?<=[.!?])\s+/).filter(Boolean);
@@ -367,11 +349,6 @@ function parseMarkdown(md) {
 
 // ─── Holland dimension text parser ───────────────────────
 
-/**
- * Parses the hollandExplicacion blob (produced by Gemini) looking for
- * paragraphs that start with a dimension name.
- * Returns a map: { I: { description, workStyle, tasks, environment, strengths }, ... }
- */
 function parseHollandDimensions(text) {
   if (!text) return { dims: {}, intro: '', conclusion: '' };
 
@@ -385,8 +362,6 @@ function parseHollandDimensions(text) {
   ];
 
   const dims = {};
-  
-  // Clean text from double asterisks to normalize
   const cleanText = text.replace(/\*\*/g, '');
 
   let intro = '';
@@ -429,8 +404,8 @@ function parseHollandDimensions(text) {
 
     const extractField = (labels) => {
       const fieldRx = new RegExp('(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:)[a-zA-ZáéíóúÁÉÍÓÚ\\s]*\\s*[:\\-\\.]\\s*([\\s\\S]*?)(?=(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:Estilo de trabajo|Tipo de tareas|Tipo de actividades|Entorno laboral|Entorno ideal|Fortalezas)|$)', 'i');
-      const m = blockText.match(fieldRx);
-      return m ? m[1].replace(/^[*\s]+|[*\s]+$/g, '').trim() : null;
+      const m2 = blockText.match(fieldRx);
+      return m2 ? m2[1].replace(/^[*\s]+|[*\s]+$/g, '').trim() : null;
     };
 
     const workStyle   = extractField('Estilo de trabajo');
@@ -458,13 +433,11 @@ function clean(s = '') {
 function highlightPortrait(text) {
   let html = clean(text);
   
-  // Si el texto ya vino súper enriquecido de Gemini (>3 negritas), lo dejamos casi como está
   const matchBolds = html.match(/<strong>/g);
   if (matchBolds && matchBolds.length > 3) {
     return html.replace(/<strong>/g, '<strong class="text-gray-900 font-extrabold">');
   }
 
-  // Lista de términos vocacionales potentes a enfatizar automáticamente
   const keywords = [
     'Realista', 'Investigador', 'Art[íi]stico', 'Social', 'Emprendedor', 'Convencional',
     'mente', 'curiosidad', 'dinamismo', 'estrategia', 'estrat[ée]gic[oa]', 'liderazgo',
@@ -474,7 +447,6 @@ function highlightPortrait(text) {
   ];
 
   keywords.forEach(kw => {
-    // Regex que busca la palabra completa exacta, fuera de tags HTML, insensible a mayúsculas
     const rx = new RegExp(`(?<!<[^>]*)(\\b${kw}\\b)(?![^<]*>)`, 'gi');
     html = html.replace(rx, '<strong class="text-gray-900 font-extrabold">$1</strong>');
   });
@@ -542,11 +514,6 @@ function RiasecRadar({ scores }) {
   );
 }
 
-/**
- * HollandDimensionCard
- * Receives a score object (dim, label, pct) + dynamic details parsed from Gemini.
- * Falls back to the static RIASEC_DETAILS dict for any missing field.
- */
 function HollandDimensionCard({ score, dynamicDetails }) {
   const { dim, label, pct } = score;
   const col = RIASEC_COLOURS[dim];
@@ -572,10 +539,7 @@ function HollandDimensionCard({ score, dynamicDetails }) {
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-      {/* Top accent bar in dimension colour */}
       <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: col.bar }} />
-
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 md:px-8 pt-8 pb-6">
         <div className="flex items-center gap-4">
           <span
@@ -598,14 +562,12 @@ function HollandDimensionCard({ score, dynamicDetails }) {
         </div>
       </div>
 
-      {/* Description */}
       {description && (
         <p className="px-6 md:px-8 pb-6 text-base text-gray-700 leading-relaxed">
           {description}
         </p>
       )}
 
-      {/* 2-column grid of sub-blocks */}
       {subBlocks.length > 0 && (
         <div
           className="px-6 md:px-8 pb-8 grid grid-cols-1 md:grid-cols-2 gap-4"
@@ -668,8 +630,6 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
   const navigate = useNavigate();
   const [careerImage, setCareerImage] = React.useState(null);
   const [imageLoading, setImageLoading] = React.useState(true);
-
-  console.log('🎴 CareerBlock render:', { careerTitle: career.title, isSelected, isActionLoading });
 
   React.useEffect(() => {
     let mounted = true;
@@ -789,10 +749,7 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
               <div className="flex justify-center">
                 <button
                   type="button"
-                  onClick={() => {
-                    console.log('🔘 Click en Elegir profesión:', { career: career.title, image: careerImage });
-                    onSelect(career, careerImage);
-                  }}
+                  onClick={() => onSelect(career, careerImage)}
                   disabled={isActionLoading}
                   className="inline-flex items-center justify-center gap-2 min-w-[220px] px-7 py-3.5 rounded-xl bg-purple-600 text-white text-base font-bold hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg"
                 >
@@ -978,104 +935,107 @@ function TableOfContents() {
   );
 }
 
-// ─── Main export ──────────────────────────────────────────
+// ─── PDF Download helper ──────────────────────────────────
 
-export default function InformeVocacional({ markdown, onDownload }) {
-  const report = useMemo(() => parseMarkdown(markdown), [markdown]);
-  const [selectedCareerTitle, setSelectedCareerTitle] = useState(null);
-  const [careerActionLoading, setCareerActionLoading] = useState(false);
+function generatePdfDownload(text, showToast) {
+  if (!text || text === 'Respuesta truncada.') {
+    showToast('error', 'El informe aún no está disponible. Intenta actualizar la página.');
+    return;
+  }
+
+  const mdToHtml = (md) => {
+    return md
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>\n?)+/gs, '<ul>$&</ul>')
+      .replace(/^\|(.+)\|$/gm, (match) => {
+        const cells = match.split('|').filter(c => c.trim());
+        return '<tr>' + cells.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
+      })
+      .replace(/(<tr>.*<\/tr>\n?)+/gs, '<table>$&</table>')
+      .replace(/^(?!<[hulist]).+$/gm, (line) => line.trim() ? `<p>${line}</p>` : '')
+      .replace(/<\/ul>\n<ul>/g, '');
+  };
+
+  const htmlContent = mdToHtml(text);
+  const fecha = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const printWindow = window.open('', '_blank', 'width=900,height=700');
+  if (!printWindow) {
+    showToast('error', 'El navegador bloqueó la ventana emergente. Permite las ventanas emergentes e inténtalo de nuevo.');
+    return;
+  }
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Informe Vocacional – VocAcción</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; color: #1a1a2e; background: #ffffff; padding: 48px; max-width: 820px; margin: 0 auto; font-size: 14px; line-height: 1.7; }
+    .pdf-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #7c3aed; padding-bottom: 20px; margin-bottom: 32px; }
+    .logo-brand { font-size: 24px; font-weight: 800; background: linear-gradient(135deg, #7c3aed, #16a34a); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .pdf-meta { font-size: 12px; color: #6b7280; text-align: right; line-height: 1.5; }
+    h1 { font-size: 22px; font-weight: 800; color: #7c3aed; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #ede9fe; }
+    h2 { font-size: 17px; font-weight: 700; color: #5b21b6; margin: 22px 0 10px; }
+    h3 { font-size: 15px; font-weight: 600; color: #374151; margin: 16px 0 8px; }
+    p { margin-bottom: 10px; color: #374151; }
+    ul { margin: 8px 0 12px 20px; color: #374151; }
+    li { margin-bottom: 5px; }
+    strong { color: #1f2937; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+    td, th { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+    tr:nth-child(even) td { background: #f9fafb; }
+    tr:first-child td { background: #ede9fe; font-weight: 600; }
+    .pdf-footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 11px; color: #9ca3af; }
+    .print-btn { position: fixed; bottom: 24px; right: 24px; background: linear-gradient(135deg, #7c3aed, #16a34a); color: white; border: none; padding: 12px 24px; border-radius: 50px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 20px rgba(124,58,237,0.4); z-index: 100; }
+    .print-btn:hover { opacity: 0.9; transform: scale(1.02); }
+    @media print { .print-btn { display: none !important; } body { padding: 20px; font-size: 12px; } h1 { font-size: 18px; } h2 { font-size: 15px; } }
+  </style>
+</head>
+<body>
+  <div class="pdf-header">
+    <div>
+      <div class="logo-brand">VocAcción</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:4px;">Tu futuro profesional</div>
+    </div>
+    <div class="pdf-meta">
+      <div><strong>Informe Vocacional RIASEC</strong></div>
+      <div>Generado el ${fecha}</div>
+      <div>Confidencial – Uso personal</div>
+    </div>
+  </div>
+  <div class="report-content">${htmlContent}</div>
+  <div class="pdf-footer">© ${new Date().getFullYear()} VocAcción · Tu orientador vocacional con Inteligencia Artificial · informe generado automáticamente con tecnología Gemini AI</div>
+  <button class="print-btn" onclick="window.print()">🖨️ Guardar como PDF</button>
+  <script>setTimeout(() => window.print(), 800);</script>
+</body>
+</html>`);
+
+  printWindow.document.close();
+}
+
+// ─── Dashboard Report (internal component) ────────────────
+
+function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerActionLoading, handleSelectCareer, handleClearCareerSelection, onDownload }) {
+
+  if (!informeMarkdown) return null;
+
   const hasStructure = report && (
     report.riasecScores.length > 0 || report.superpowers.length > 0 || report.careers.length > 0
   );
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadSelectedCareer = async () => {
-      try {
-        console.log('🔄 Cargando profesión seleccionada del backend...');
-        const res = await getObjetivoProfesional();
-        console.log('📥 Respuesta de objetivo profesional:', res);
-        if (!mounted) return;
-        const title = res?.objetivo?.profesion?.titulo || null;
-        console.log('📌 Profesión seleccionada cargada:', title);
-        setSelectedCareerTitle(title);
-      } catch (err) {
-        console.error('❌ Error al cargar profesión seleccionada:', err);
-        if (mounted) setSelectedCareerTitle(null);
-      }
-    };
-
-    loadSelectedCareer();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const handleSelectCareer = async (career, imageUrl) => {
-    console.log('🎯 Intentando seleccionar profesión:', career.title);
-    setCareerActionLoading(true);
-    try {
-      const payload = {
-        profesion: {
-          titulo: career.title,
-          descripcion: career.why || '',
-          salidas: Array.isArray(career.salidas) ? career.salidas : [],
-          formacion_recomendada: Array.isArray(career.formacion)
-            ? career.formacion
-            : (career.formacion ? [career.formacion] : []),
-          imagen_url: imageUrl || '/images/default-profession.jpg'
-        }
-      };
-
-      console.log('📤 Enviando payload:', payload);
-      const res = await saveObjetivoProfesional(payload);
-      console.log('📥 Respuesta del backend:', res);
-      
-      if (res?.success) {
-        console.log('✅ Guardado exitoso, actualizando estado a:', career.title);
-        setSelectedCareerTitle(career.title);
-        try {
-          localStorage.setItem('objetivo_changed', Date.now().toString());
-        } catch (e) {
-          // ignore storage failures
-        }
-      } else {
-        console.error('❌ Backend no devolvió success:', res);
-      }
-    } catch (err) {
-      console.error('❌ Error al guardar profesion objetivo:', err);
-    } finally {
-      setCareerActionLoading(false);
-    }
-  };
-
-  const handleClearCareerSelection = async () => {
-    setCareerActionLoading(true);
-    try {
-      const res = await deleteObjetivoProfesional();
-      if (res?.success) {
-        setSelectedCareerTitle(null);
-        try {
-          localStorage.setItem('objetivo_changed', Date.now().toString());
-        } catch (e) {
-          // ignore storage failures
-        }
-      }
-    } catch (err) {
-      console.error('No se pudo limpiar la profesion objetivo', err);
-    } finally {
-      setCareerActionLoading(false);
-    }
-  };
-
-  if (!markdown) return null;
 
   // Fallback simple view
   if (!hasStructure) {
     return (
       <div className="w-full max-w-4xl mx-auto prose prose-purple bg-white p-8 md:p-12 rounded-2xl shadow-sm border border-gray-200">
-        <div dangerouslySetInnerHTML={{ __html: markdown.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
+        <div dangerouslySetInnerHTML={{ __html: informeMarkdown.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }} />
       </div>
     );
   }
@@ -1085,7 +1045,6 @@ export default function InformeVocacional({ markdown, onDownload }) {
       
       {/* ── Big Hero Header ── */}
       <div className="bg-gray-900 text-white rounded-t-3xl px-8 md:px-16 py-12 md:py-16 relative overflow-hidden">
-        {/* Subtle decorative background element */}
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-96 h-96 rounded-full bg-purple-600/20 blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-80 h-80 rounded-full bg-emerald-600/20 blur-3xl pointer-events-none" />
         
@@ -1139,7 +1098,6 @@ export default function InformeVocacional({ markdown, onDownload }) {
             
             <DocSection id="riasec" title="1. Análisis de tu Código Holland" icon={UserCheck}>
 
-              {/* Intro paragraph from Gemini (personalised) */}
               {report.hollandIntro ? (
                 <div className="text-base text-gray-700 leading-relaxed space-y-3 mb-8">
                   {report.hollandIntro.split(/\n{2,}/).filter(Boolean).map((p, i) => (
@@ -1152,10 +1110,8 @@ export default function InformeVocacional({ markdown, onDownload }) {
                 </p>
               )}
 
-              {/* Dimension cards */}
               {report.riasecScores?.length > 0 && (() => {
                 const sorted = [...report.riasecScores].sort((a, b) => b.pct - a.pct);
-                // Dominant = dimensions in the riasecCode
                 const dominantDims = new Set(report.riasecCode?.split('') ?? []);
                 const dominant  = sorted.filter(s => dominantDims.has(s.dim));
                 const secondary = sorted.filter(s => !dominantDims.has(s.dim));
@@ -1163,7 +1119,6 @@ export default function InformeVocacional({ markdown, onDownload }) {
                 return (
                   <div className="mt-10 space-y-10">
 
-                    {/* Dominant dimensions */}
                     {dominant.length > 0 && (
                       <div>
                         <div className="flex items-center gap-3 mb-6 border-t border-gray-100 pt-8">
@@ -1188,7 +1143,6 @@ export default function InformeVocacional({ markdown, onDownload }) {
                       </div>
                     )}
 
-                    {/* Secondary dimensions */}
                     {secondary.length > 0 && (
                       <div>
                         <div className="flex items-center gap-3 mb-6 pt-4">
@@ -1221,7 +1175,6 @@ export default function InformeVocacional({ markdown, onDownload }) {
                       <RiasecRadar scores={report.riasecScores} />
                     </div>
 
-                    {/* Conclusion / synthesis paragraph */}
                     {report.hollandConclusion && (
                       <div
                         className="rounded-2xl p-6 md:p-8 border"
@@ -1268,21 +1221,17 @@ export default function InformeVocacional({ markdown, onDownload }) {
                 <p className="text-base text-gray-600 mb-8">
                   Perfiles profesionales analizados exhaustivamente contra tu código Holland. Incluyen porcentajes de compatibilidad, salidas reales y la hoja de ruta académica necesaria.
                 </p>
-                {report.careers.map((c, i) => {
-                  const isSelected = selectedCareerTitle === c.title;
-                  console.log('🔍 Comparando:', { selectedCareerTitle, careerTitle: c.title, isSelected });
-                  return (
-                    <CareerBlock
-                      key={i}
-                      career={c}
-                      rank={i + 1}
-                      isSelected={isSelected}
-                      isActionLoading={careerActionLoading}
-                      onSelect={handleSelectCareer}
-                      onClearSelection={handleClearCareerSelection}
-                    />
-                  );
-                })}
+                {report.careers.map((c, i) => (
+                  <CareerBlock
+                    key={i}
+                    career={c}
+                    rank={i + 1}
+                    isSelected={selectedCareerTitle === c.title}
+                    isActionLoading={careerActionLoading}
+                    onSelect={handleSelectCareer}
+                    onClearSelection={handleClearCareerSelection}
+                  />
+                ))}
               </DocSection>
             )}
 
@@ -1311,6 +1260,451 @@ export default function InformeVocacional({ markdown, onDownload }) {
           </div>
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── Main Page Export ─────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+export default function InformeVocacional() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+
+  const [informeMarkdown, setInformeMarkdown] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [frase, setFrase] = useState('');
+  const [isFallback, setIsFallback] = useState(false);
+
+  // Career selection state
+  const [selectedCareerTitle, setSelectedCareerTitle] = useState(null);
+  const [careerActionLoading, setCareerActionLoading] = useState(false);
+
+  const vieneDelTest = useRef(!!location.state?.resultadoTexto);
+
+  // Parse markdown into structured report
+  const report = useMemo(() => parseMarkdown(informeMarkdown), [informeMarkdown]);
+
+  // ── Load results ──────────────────────────────────────────
+  useEffect(() => {
+    async function generarResultados() {
+      try {
+        // Fast path: we come from the test with results already calculated
+        const stateResultado = location.state?.resultadoTexto;
+        if (stateResultado) {
+          setInformeMarkdown(stateResultado);
+          setFrase('Tu elemento está donde se cruzan tus pasiones con tus talentos. Basado en tus respuestas, podría encontrarse en...');
+          setCargando(false);
+          return;
+        }
+
+        // Try to get the last saved result
+        const res = await getUserResults();
+        if (res?.success && res.results && res.results.length > 0) {
+          const latest = res.results[0];
+          setInformeMarkdown(latest.result_text || '');
+          setFrase('Estos son tus resultados guardados:');
+          setCargando(false);
+          return;
+        }
+
+        // Fallback flag
+        const fallbackFlag = localStorage.getItem('result_fallback');
+        if (fallbackFlag === 'true') {
+          setIsFallback(true);
+        }
+
+        // No results available
+        setCargando(false);
+      } catch (error) {
+        console.error('Error cargando resultados:', error);
+        setCargando(false);
+      }
+    }
+
+    generarResultados();
+  }, [location.state]);
+
+  // ── Load selected career from backend ─────────────────────
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSelectedCareer = async () => {
+      try {
+        const res = await getObjetivoProfesional();
+        if (!mounted) return;
+        const title = res?.objetivo?.profesion?.titulo || null;
+        setSelectedCareerTitle(title);
+      } catch (err) {
+        if (mounted) setSelectedCareerTitle(null);
+      }
+    };
+
+    loadSelectedCareer();
+    return () => { mounted = false; };
+  }, []);
+
+  // ── Listen for cross-tab changes ──────────────────────────
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key === 'objetivo_changed') {
+        getObjetivoProfesional().then(objRes => {
+          if (objRes?.success && objRes.objetivo) {
+            setSelectedCareerTitle(objRes.objetivo.profesion?.titulo || null);
+          } else {
+            setSelectedCareerTitle(null);
+          }
+        }).catch(() => {});
+      }
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // ── Career selection handlers ─────────────────────────────
+  const handleSelectCareer = async (career, imageUrl) => {
+    setCareerActionLoading(true);
+    try {
+      const payload = {
+        profesion: {
+          titulo: career.title,
+          descripcion: career.why || '',
+          salidas: Array.isArray(career.salidas) ? career.salidas : [],
+          formacion_recomendada: Array.isArray(career.formacion)
+            ? career.formacion
+            : (career.formacion ? [career.formacion] : []),
+          imagen_url: imageUrl || '/images/default-profession.jpg'
+        }
+      };
+
+      const res = await saveObjetivoProfesional(payload);
+      
+      if (res?.success) {
+        setSelectedCareerTitle(career.title);
+        showToast('success', 'Profesión guardada en tu perfil.');
+        try {
+          localStorage.setItem('objetivo_changed', Date.now().toString());
+        } catch (e) {
+          // ignore storage failures
+        }
+      } else {
+        showToast('error', res?.message || 'No se pudo guardar la profesión.');
+      }
+    } catch (err) {
+      console.error('No se pudo guardar la profesion objetivo', err);
+      showToast('error', 'No se pudo guardar. Intenta nuevamente.');
+    } finally {
+      setCareerActionLoading(false);
+    }
+  };
+
+  const handleClearCareerSelection = async () => {
+    setCareerActionLoading(true);
+    try {
+      const res = await deleteObjetivoProfesional();
+      if (res?.success) {
+        setSelectedCareerTitle(null);
+        showToast('success', '¡Listo! Ahora puedes elegir otra profesión.');
+        try {
+          localStorage.setItem('objetivo_changed', Date.now().toString());
+        } catch (e) {
+          // ignore storage failures
+        }
+      } else {
+        showToast('error', 'No se pudo cambiar la elección.');
+      }
+    } catch (err) {
+      console.error('No se pudo limpiar la profesion objetivo', err);
+      showToast('error', 'Error al cambiar la elección. Intenta nuevamente.');
+    } finally {
+      setCareerActionLoading(false);
+    }
+  };
+
+  // ── PDF download handler ──────────────────────────────────
+  const handleDownloadReport = () => {
+    generatePdfDownload(informeMarkdown, showToast);
+  };
+
+  const volverARealizarTest = () => {
+    navigate('/test');
+  };
+
+  // ── Loading state ─────────────────────────────────────────
+  if (cargando) {
+    if (vieneDelTest.current) {
+      return <PantallaEsperaResultados />;
+    }
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50">
+        <div className="text-center space-y-6 p-8">
+          <div className="relative inline-block">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-transparent bg-gradient-to-r from-purple-600 to-green-600 bg-clip-padding"></div>
+            <div className="absolute inset-0 m-1 rounded-full bg-gradient-to-br from-purple-50 via-white to-green-50"></div>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent">
+              Cargando tus resultados...
+            </h3>
+            <p className="text-gray-600 text-sm">
+              Preparando tus profesiones recomendadas
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2">
+            <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Empty state (no results) ──────────────────────────────
+  if (!informeMarkdown) {
+    return (
+      <div className="min-h-screen px-4 py-10 bg-gradient-to-br from-purple-50 via-white to-green-50">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-12 animate-fadeIn">
+            <div className="inline-flex items-center justify-center p-2 bg-purple-100 rounded-full mb-4">
+              <Lightbulb className="w-8 h-8 text-purple-600" />
+            </div>
+            <h2 className="text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent mb-4">
+              Tu Camino Profesional
+            </h2>
+            <div className="mt-6 flex items-center justify-center gap-2">
+              <div className="h-1 w-20 bg-gradient-to-r from-purple-500 to-transparent rounded-full"></div>
+              <div className="h-1 w-1 bg-purple-400 rounded-full"></div>
+              <div className="h-1 w-1 bg-green-400 rounded-full"></div>
+              <div className="h-1 w-1 bg-purple-400 rounded-full"></div>
+              <div className="h-1 w-20 bg-gradient-to-l from-green-500 to-transparent rounded-full"></div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 border-2 border-purple-100">
+            <div className="text-center space-y-6">
+              <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-green-500 rounded-full mx-auto flex items-center justify-center shadow-lg">
+                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+
+              <h3 className="text-2xl md:text-3xl font-bold text-gray-800">
+                ¡Aún no has realizado el test!
+              </h3>
+
+              <p className="text-lg text-gray-600 leading-relaxed max-w-2xl mx-auto">
+                Para descubrir las profesiones que mejor se adaptan a tu perfil, intereses y habilidades,
+                necesitas completar nuestro <span className="font-semibold text-purple-700">test vocacional</span>.
+              </p>
+
+              <div className="bg-gradient-to-br from-purple-50 to-green-50 rounded-2xl p-6 space-y-3 text-left">
+                <h4 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  ¿Qué obtendrás al realizar el test?
+                </h4>
+                <ul className="space-y-2 text-gray-600">
+                  <li className="flex items-start gap-2">
+                    <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Análisis personalizado</strong> basado en tus intereses y habilidades</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Profesiones recomendadas</strong> con imágenes reales y salidas laborales</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <svg className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Orientación inteligente</strong> para tu futuro profesional</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={volverARealizarTest}
+                className="group w-full mt-8 flex items-center justify-center gap-3 bg-gradient-to-r from-purple-600 to-green-600 hover:from-purple-700 hover:to-green-700 text-white px-8 py-5 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02] cursor-pointer"
+              >
+                <svg className="w-6 h-6 transform group-hover:rotate-12 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                Realizar el test vocacional
+                <svg className="w-5 h-5 transform group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </button>
+
+              <p className="text-sm text-gray-500 italic">
+                Solo te tomará unos minutos y abrirá puertas hacia tu futuro profesional
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Main results view ─────────────────────────────────────
+  return (
+    <div className="min-h-screen px-4 py-10 bg-gradient-to-br from-purple-50 via-white to-green-50">
+      <div className="max-w-[1400px] mx-auto">
+
+        {/* Aviso de resultado fallback */}
+        {isFallback && (
+          <div className="mb-8 bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded-lg shadow-md">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-yellow-800">Análisis Preliminar</h3>
+                <div className="mt-2 text-sm text-yellow-700">
+                  <p>
+                    Este es un análisis vocacional preliminar del sistema. Para obtener recomendaciones
+                    personalizadas con inteligencia artificial, inténtalo de nuevo en 10-15 minutos o
+                    <a href="/contacto" className="font-semibold underline ml-1">agenda una sesión con un orientador</a>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="text-center mb-16 animate-fadeIn">
+          <div className="inline-flex items-center justify-center p-2 bg-purple-100 rounded-full mb-4">
+            <Star className="w-8 h-8 text-purple-600" />
+          </div>
+          <h2 className="text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent mb-4">
+            Tu Camino Profesional
+          </h2>
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">{frase}</p>
+          <div className="mt-6 flex items-center justify-center gap-2">
+            <div className="h-1 w-20 bg-gradient-to-r from-purple-500 to-transparent rounded-full"></div>
+            <div className="h-1 w-1 bg-purple-400 rounded-full"></div>
+            <div className="h-1 w-1 bg-green-400 rounded-full"></div>
+            <div className="h-1 w-1 bg-purple-400 rounded-full"></div>
+            <div className="h-1 w-20 bg-gradient-to-l from-green-500 to-transparent rounded-full"></div>
+          </div>
+        </div>
+
+        {/* Tarjeta informativa */}
+        <div className="max-w-4xl mx-auto mb-12">
+          <div className="bg-gradient-to-br from-purple-50 via-white to-green-50 rounded-2xl p-6 md:p-8 border-2 border-purple-100 shadow-lg">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+                  <Lightbulb className="w-5 h-5 text-purple-600" />
+                  Sobre tus resultados
+                </h3>
+                <p className="text-gray-600 leading-relaxed text-sm md:text-base text-justify">
+                  Este informe analiza tu personalidad vocacional utilizando el modelo RIASEC de Holland, uno de los sistemas más utilizados en orientación profesional.
+                  Tu perfil combina diferentes dimensiones (Realista, Investigador, Artístico, Social, Emprendedor y Convencional) que revelan los entornos laborales, 
+                  habilidades y roles donde puedes destacar naturalmente. Puedes elegir una de las profesiones que te indicamos y 
+                  <strong className="text-purple-700"> puedes cambiar tu elección en cualquier momento</strong> desde esta misma página o desde "Mi Profesión".
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span>Perfil vocacional basado en RIASEC</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                    <span>Análisis de tus fortalezas profesionales</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span>Caminos profesionales compatibles</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Informe RIASEC Dashboard */}
+        <div className="w-full mb-16 animate-fadeIn">
+          <ReportDashboard
+            report={report}
+            informeMarkdown={informeMarkdown}
+            selectedCareerTitle={selectedCareerTitle}
+            careerActionLoading={careerActionLoading}
+            handleSelectCareer={handleSelectCareer}
+            handleClearCareerSelection={handleClearCareerSelection}
+            onDownload={handleDownloadReport}
+          />
+        </div>
+
+        {/* Sección: Comparte tu experiencia */}
+        <div className="max-w-4xl mx-auto mt-16 mb-12">
+          <div className="bg-white rounded-2xl shadow-lg border-2 border-purple-100 p-8 md:p-10 hover:shadow-xl transition-shadow duration-300">
+            <div className="flex flex-col md:flex-row items-center gap-6">
+              <div className="flex-shrink-0 w-16 h-16 bg-gradient-to-br from-purple-500 to-green-500 rounded-full flex items-center justify-center shadow-lg">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h3 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent mb-2">
+                  ¿Cómo ha sido tu experiencia?
+                </h3>
+                <p className="text-gray-600 text-base md:text-lg leading-relaxed">
+                  Ayuda a otros estudiantes dejando una reseña sobre tu proceso en VocAcción.
+                </p>
+              </div>
+              <div className="flex-shrink-0">
+                <button
+                  onClick={() => navigate('/testimonios')}
+                  className="group flex items-center gap-2 bg-gradient-to-r from-purple-600 to-green-600 hover:from-purple-700 hover:to-green-700 text-white px-6 py-3 rounded-full font-semibold shadow-md hover:shadow-lg transition-all duration-300 transform hover:scale-105"
+                >
+                  <svg className="w-5 h-5 transform group-hover:rotate-12 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Dejar reseña
+                  <svg className="w-4 h-4 transform group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Botón repetir test */}
+        <div className="mt-16 text-center space-y-6">
+          <div className="inline-flex flex-col items-center gap-4">
+            <div className="w-16 h-1 bg-gradient-to-r from-transparent via-purple-300 to-transparent rounded-full"></div>
+            <button
+              onClick={volverARealizarTest}
+              className="group flex items-center gap-3 bg-white hover:bg-gradient-to-r hover:from-blue-600 hover:to-blue-700 text-blue-600 hover:text-white px-8 py-4 rounded-full font-semibold shadow-lg hover:shadow-xl border-2 border-blue-200 hover:border-transparent transition-all duration-300 transform hover:scale-105 cursor-pointer"
+            >
+              <svg className="w-5 h-5 transform group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Realizar el test nuevamente
+            </button>
+            <p className="text-sm text-gray-500 max-w-md">
+              ¿Quieres explorar otras opciones? Repite el test con diferentes respuestas para descubrir más profesiones.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
