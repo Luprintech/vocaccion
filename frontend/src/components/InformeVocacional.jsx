@@ -1,4 +1,4 @@
-/**
+﻿/**
  * InformeVocacional.jsx  (v4 – SaaS Premium / Dashboard Layout)
  * -----------------------------------------------------------
  * Transforms raw Gemini Markdown into a structure inspired by
@@ -48,36 +48,42 @@ const RIASEC_DETAILS = {
     description: "Las personas realistas son prácticas, físicas y concretas. Prefieren trabajar con sus manos, usar herramientas, manejar maquinaria e interactuar con el entorno físico.",
     workStyle: "Práctico, orientado a la acción y centrado en resultados tangibles.",
     tasks: "Construir, reparar, operar equipos, trabajar al aire libre o con tecnología aplicada.",
+    environment: "Talleres, obras, espacios al aire libre, plantas industriales o laboratorios técnicos.",
     strengths: "Habilidad motriz, sentido común, resolutividad mecánica y practicidad."
   },
   I: {
     description: "El perfil investigador se enfoca en comprender el mundo. Son personas curiosas, intelectuales y racionales a las que les fascina resolver problemas complejos.",
     workStyle: "Independiente, analítico, metódico y orientado al razonamiento.",
     tasks: "Diseñar experimentos, analizar datos, programar, investigar fuentes y resolver enigmas lógicos.",
+    environment: "Laboratorios, centros de I+D, universidades, think tanks o startups innovadoras.",
     strengths: "Pensamiento crítico, lógica matemática, curiosidad intelectual y objetividad."
   },
   A: {
     description: "El perfil artístico valora la autoexpresión, la originalidad y la estética. Buscan entornos donde puedan crear, emocionar y romper con estructuras rígidas.",
     workStyle: "Flexible, intuitivo, no estructurado y altamente creativo.",
     tasks: "Diseñar, escribir, componer, actuar o idear conceptos visuales y narrativos.",
+    environment: "Estudios creativos, agencias de diseño, compañías de cine, museos o startups de contenido.",
     strengths: "Innovación, sensibilidad estética, imaginación e inteligencia emocional."
   },
   S: {
     description: "Las personas sociales están orientadas hacia el bienestar de los demás. Encuentran propósito en educar, ayudar, curar o facilitar el desarrollo humano.",
     workStyle: "Colaborativo, empático, comunicativo y de apoyo mutuo.",
     tasks: "Enseñar, orientar, mediar en conflictos, cuidar a pacientes o liderar equipos humanos.",
+    environment: "Colegios, hospitales, ONGs, centros de orientación o departamentos de Recursos Humanos.",
     strengths: "Empatía, escucha activa, comunicación interpersonal y paciencia."
   },
   E: {
     description: "Los emprendedores son persuasivos, ambiciosos y líderes naturales. Disfrutan tomando la iniciativa para iniciar proyectos y alcanzar objetivos estratégicos.",
     workStyle: "Dinámico, persuasivo, competitivo y orientado a metas.",
     tasks: "Vender, negociar, liderar equipos, tomar decisiones de riesgo y gestionar negocios.",
+    environment: "Startups, empresas de ventas, departamentos directivos, consultoras o cualquier entorno de alto dinamismo.",
     strengths: "Liderazgo, persuasión, confianza en sí mismos y visión de negocio."
   },
   C: {
     description: "El perfil convencional es organizado, detallista y eficiente. Sobresalen en entornos estructurados donde la precisión y el manejo de información son clave.",
     workStyle: "Ordenado, metódico, predecible y altamente estructurado.",
     tasks: "Gestionar bases de datos, organizar archivos, realizar cálculos contables y seguir protocolos.",
+    environment: "Oficinas administrativas, entidades financieras, administraciones públicas o departamentos de contabilidad.",
     strengths: "Atención al detalle, organización, eficiencia administrativa y confiabilidad."
   }
 };
@@ -95,6 +101,7 @@ function parseMarkdown(md) {
 
   const result = {
     title: '', riasecScores: [], riasecCode: '', hollandExplicacion: '',
+    hollandDimensions: {}, hollandIntro: '', hollandConclusion: '',
     psicologico: '', superpowers: [], careers: [],
     growthAreas: [], message: '',
   };
@@ -153,17 +160,38 @@ function parseMarkdown(md) {
     result.riasecCode = [...result.riasecScores].sort((a, b) => b.pct - a.pct).filter(d => d.pct > 5).slice(0, 3).map(d => d.dim).join('');
   }
   
-  // Extraer código explícito de frases como "código **IE (Investigador..."
-  const codeMatch = hollandText.match(/código\s*(?:holland)?[\s:.]*\*?\*?([RIASEC]{2,3})\b/i);
-  if (codeMatch) {
-    result.riasecCode = codeMatch[1].toUpperCase();
-  } else if (!result.riasecCode && Object.keys(scoreMap).length > 0) {
-    result.riasecCode = [...result.riasecScores]
-      .sort((a, b) => b.pct - a.pct)
-      .filter(d => d.pct > 5)
-      .slice(0, 3)
-      .map(d => d.dim)
-      .join('');
+  // Extraer código explícito - múltiples patrones que usa Gemini
+  const codePatterns = [
+    /c[oó]digo\s*(?:holland)?[\s:.]*\*?\*?([RIASEC]{2,3})\b/i,                // "código IE" / "código Holland IE"
+    /\*\*([RIASEC]{2,3})\*\*\s*(?:\([^)]+\))?/,                               // "**IE** (Investigador...)"
+    /perfil\s+(?:dominante\s+)?[:\s]*\*?\*?([RIASEC]{2,3})\b/i,               // "perfil dominante: IE"
+    /tipo\s+(?:holland\s+)?[:\s]*\*?\*?([RIASEC]{2,3})\b/i,                   // "tipo Holland: IE"
+    /\b([RIASEC]{2,3})\s*(?:\([A-Za-záéíóúÁÉÍÓÚ\-\s,]+\))/,                  // "IE (Investigador-Emprendedor)"
+  ];
+  let explicitCode = null;
+  for (const rx of codePatterns) {
+    const m = hollandText.match(rx);
+    if (m && /^[RIASEC]{2,3}$/.test(m[1])) {
+      explicitCode = m[1].toUpperCase();
+      break;
+    }
+  }
+
+  if (explicitCode) {
+    result.riasecCode = explicitCode;
+  } else if (Object.keys(scoreMap).length > 0) {
+    // Gap-based algorithm: include dimension only if it's within 15 percentage
+    // points of the top dimension OR there's no big drop before it
+    const sorted = [...result.riasecScores].sort((a, b) => b.pct - a.pct).filter(d => d.pct > 0);
+    const top = sorted[0]?.pct ?? 0;
+    const selected = [sorted[0]];
+    for (let i = 1; i < sorted.length && i < 3; i++) {
+      const gap = sorted[i - 1].pct - sorted[i].pct;
+      // Stop if this dimension is < 12% of the profile or there's a drop > 12 pts
+      if (sorted[i].pct < 12 || gap > 12) break;
+      selected.push(sorted[i]);
+    }
+    result.riasecCode = selected.map(d => d.dim).join('');
   }
 
   // Extract explanation lines by ignoring table score rows
@@ -183,6 +211,12 @@ function parseMarkdown(md) {
     .join('\n')
     .replace(/^#+.*$/mg, '') // remove headings
     .trim();
+
+  // 1b. Parse Holland dimension detail blocks + intro + conclusion
+  const hollandParsed = parseHollandDimensions(result.hollandExplicacion);
+  result.hollandDimensions = hollandParsed.dims;
+  result.hollandIntro      = hollandParsed.intro;
+  result.hollandConclusion = hollandParsed.conclusion;
 
   // 2. Retrato
   result.psicologico = sectionText('retrato') || sectionText('psicol') || sectionText('descripción');
@@ -317,6 +351,90 @@ function parseMarkdown(md) {
   return result;
 }
 
+// ─── Holland dimension text parser ───────────────────────
+
+/**
+ * Parses the hollandExplicacion blob (produced by Gemini) looking for
+ * paragraphs that start with a dimension name.
+ * Returns a map: { I: { description, workStyle, tasks, environment, strengths }, ... }
+ */
+function parseHollandDimensions(text) {
+  if (!text) return { dims: {}, intro: '', conclusion: '' };
+
+  const KNOWN_LABELS = [
+    { key: 'I', pattern: 'Investigador' },
+    { key: 'R', pattern: 'Realista' },
+    { key: 'A', pattern: 'Art[íi]stico' },
+    { key: 'S', pattern: 'Social' },
+    { key: 'E', pattern: 'Emprendedor' },
+    { key: 'C', pattern: 'Convencional' },
+  ];
+
+  const dims = {};
+  
+  // Clean text from double asterisks to normalize
+  const cleanText = text.replace(/\*\*/g, '');
+
+  let intro = '';
+  let conclusion = '';
+
+  const dimCapturingRx = /(?:^|\n)[\s\*]*[*\-]?(?:\s*)(Investigador|Realista|Art[íi]stico|Social|Emprendedor|Convencional)\s*(?:\([RIASEC]\))?\s*[:\-\.]/i;
+
+  const firstMatch = cleanText.match(dimCapturingRx);
+  if (firstMatch) {
+    intro = cleanText.substring(0, firstMatch.index).trim();
+  } else {
+    return { dims, intro: cleanText.trim(), conclusion: '' };
+  }
+
+  KNOWN_LABELS.forEach(({key, pattern}) => {
+    const startRx = new RegExp(`(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)${pattern}\\s*(?:\\([RIASEC]\\))?\\s*[:\\-\\.]`, 'i');
+    const startMatch = cleanText.match(startRx);
+    if (!startMatch) return;
+
+    let textAfter = cleanText.substring(startMatch.index + startMatch[0].length);
+    
+    const otherPatterns = KNOWN_LABELS.filter(l => l.key !== key).map(l => l.pattern);
+    const cutRx = new RegExp(`(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:${otherPatterns.join('|')})\\s*(?:\\([RIASEC]\\))?\\s*[:\\-\\.]`, 'i');
+    const cutMatch = textAfter.match(cutRx);
+
+    let blockText = '';
+    if (cutMatch) {
+      blockText = textAfter.substring(0, cutMatch.index);
+    } else {
+      blockText = textAfter;
+      const paragraphs = blockText.split(/\n\s*\n/);
+      if (paragraphs.length > 1) {
+          const lastPara = paragraphs[paragraphs.length - 1].trim();
+          if (!lastPara.match(/^[\*\-]/)) {
+              conclusion = lastPara;
+              blockText = paragraphs.slice(0, -1).join('\n\n');
+          }
+      }
+    }
+
+    const extractField = (labels) => {
+      const fieldRx = new RegExp('(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:)[a-zA-ZáéíóúÁÉÍÓÚ\\s]*\\s*[:\\-\\.]\\s*([\\s\\S]*?)(?=(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:Estilo de trabajo|Tipo de tareas|Tipo de actividades|Entorno laboral|Entorno ideal|Fortalezas)|$)', 'i');
+      const m = blockText.match(fieldRx);
+      return m ? m[1].replace(/^[*\s]+|[*\s]+$/g, '').trim() : null;
+    };
+
+    const workStyle   = extractField('Estilo de trabajo');
+    const tasks       = extractField('Tipo de tareas|Tipo de actividades');
+    const environment = extractField('Entorno laboral|Entorno ideal');
+    const strengths   = extractField('Fortalezas naturales|Fortalezas');
+
+    const firstFieldMatch = blockText.match(/(?:^|\n)[\s\*]*[*\-]?(?:\s*)(?:Estilo de trabajo|Tipo de tareas|Tipo de actividades|Entorno laboral|Entorno ideal|Fortalezas)/i);
+    const descRaw = firstFieldMatch ? blockText.substring(0, firstFieldMatch.index) : blockText;
+    const description = descRaw.replace(/^[*\s]+|[*\s]+$/g, '').trim();
+
+    dims[key] = { description, workStyle, tasks, environment, strengths };
+  });
+
+  const cleanFinale = (t) => t.replace(/^#+.*$/mg, '').trim();
+  return { dims, intro: cleanFinale(intro), conclusion: cleanFinale(conclusion) };
+}
+
 // ─── Helpers ──────────────────────────────────────────────
 
 function clean(s = '') {
@@ -410,66 +528,93 @@ function RiasecRadar({ scores }) {
   );
 }
 
-function RiasecCard({ score }) {
+/**
+ * HollandDimensionCard
+ * Receives a score object (dim, label, pct) + dynamic details parsed from Gemini.
+ * Falls back to the static RIASEC_DETAILS dict for any missing field.
+ */
+function HollandDimensionCard({ score, dynamicDetails }) {
   const { dim, label, pct } = score;
   const col = RIASEC_COLOURS[dim];
-  const details = RIASEC_DETAILS[dim];
+  const staticDet = RIASEC_DETAILS[dim] || {};
+  const dyn = dynamicDetails || {};
 
-  if (!details) return null;
+  const description  = dyn.description  || staticDet.description  || '';
+  const workStyle    = dyn.workStyle    || staticDet.workStyle    || '';
+  const tasks        = dyn.tasks        || staticDet.tasks        || '';
+  const environment  = dyn.environment  || staticDet.environment  || '';
+  const strengths    = dyn.strengths    || staticDet.strengths    || '';
+
+  const subBlocks = [
+    { icon: <Zap size={15} />,        iconColor: '#ca8a04', label: 'Estilo de trabajo',    text: workStyle   },
+    { icon: <TargetIcon size={15} />, iconColor: '#059669', label: 'Tareas que disfruta',  text: tasks       },
+    { icon: <MapPin size={15} />,     iconColor: '#2563eb', label: 'Entorno laboral ideal', text: environment },
+    { icon: <Sparkles size={15} />,   iconColor: '#7c3aed', label: 'Fortalezas naturales', text: strengths   },
+  ].filter(b => b.text);
+
+  const halfLen = Math.ceil(subBlocks.length / 2);
+  const leftBlocks  = subBlocks.slice(0, halfLen);
+  const rightBlocks = subBlocks.slice(halfLen);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-6 md:p-8 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-      <div className="absolute top-0 left-0 right-0 h-1.5" style={{ backgroundColor: col.bar }} />
-      
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 mt-2">
+    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+      {/* Top accent bar in dimension colour */}
+      <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: col.bar }} />
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 md:px-8 pt-8 pb-6">
         <div className="flex items-center gap-4">
-          <span className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black shadow-sm"
-                style={{ background: col.bg, color: col.text, border: `1px solid ${col.border}` }}>
+          <span
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black shadow-sm flex-shrink-0"
+            style={{ background: col.bg, color: col.text, border: `1.5px solid ${col.border}` }}
+          >
             {dim}
           </span>
           <div>
-            <h4 className="text-2xl font-extrabold text-gray-900 m-0 tracking-tight">
+            <h4 className="text-2xl font-extrabold text-gray-900 m-0 leading-tight tracking-tight">
               {label} ({dim})
             </h4>
           </div>
         </div>
-        <div className="inline-flex items-center px-4 py-2 rounded-lg font-bold text-lg" style={{ background: col.bg, color: col.text }}>
+        <div
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg font-extrabold text-base flex-shrink-0"
+          style={{ background: col.bg, color: col.text, border: `1px solid ${col.border}` }}
+        >
           {pct.toFixed(1)}%
         </div>
       </div>
-      
-      <p className="text-base text-gray-700 mb-8 leading-relaxed">
-        {details.description}
-      </p>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-          <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
-            <Zap size={16} className="text-yellow-500" /> Estilo de trabajo
-          </h5>
-          <p className="text-sm text-slate-800 font-medium leading-relaxed">
-            {details.workStyle}
-          </p>
+
+      {/* Description */}
+      {description && (
+        <p className="px-6 md:px-8 pb-6 text-base text-gray-700 leading-relaxed">
+          {description}
+        </p>
+      )}
+
+      {/* 2-column grid of sub-blocks */}
+      {subBlocks.length > 0 && (
+        <div
+          className="px-6 md:px-8 pb-8 grid grid-cols-1 md:grid-cols-2 gap-4"
+          style={{ borderTop: '1px solid #f1f5f9' }}
+        >
+          {[leftBlocks, rightBlocks].map((col2, ci) =>
+            col2.map((block, bi) => (
+              <div
+                key={`${ci}-${bi}`}
+                className="mt-4 rounded-xl p-5 border border-slate-100 bg-slate-50 flex flex-col gap-2"
+              >
+                <h5 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 m-0">
+                  <span style={{ color: block.iconColor }}>{block.icon}</span>
+                  {block.label}
+                </h5>
+                <p className="text-sm text-slate-800 leading-relaxed m-0">
+                  {block.text}
+                </p>
+              </div>
+            ))
+          )}
         </div>
-        
-        <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-          <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
-            <TargetIcon size={16} className="text-emerald-500" /> Tareas que disfruta
-          </h5>
-          <p className="text-sm text-slate-800 font-medium leading-relaxed">
-            {details.tasks}
-          </p>
-        </div>
-        
-        <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-          <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
-            <Sparkles size={16} className="text-purple-500" /> Fortalezas naturales
-          </h5>
-          <p className="text-sm text-slate-800 font-medium leading-relaxed">
-            {details.strengths}
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -760,9 +905,16 @@ export default function InformeVocacional({ markdown, onDownload }) {
               {report?.title || 'Reporte de Orientación Profesional'}
             </h1>
             {report?.riasecCode && (
-              <div className="flex items-center gap-3 text-white/80">
-                <span className="text-sm font-medium">Perfil dominante identificado:</span>
-                <span className="px-3 py-1 bg-white text-gray-900 rounded-lg text-sm font-black tracking-widest shadow-sm">
+              <div className="flex items-center gap-3 mt-2">
+                <span className="text-sm font-medium text-white/70">Perfil dominante identificado:</span>
+                <span
+                  className="px-4 py-1.5 rounded-lg text-base font-black tracking-widest shadow-lg"
+                  style={{
+                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                    color: '#fff',
+                    boxShadow: '0 0 0 1px rgba(255,255,255,0.15), 0 4px 12px rgba(124,58,237,0.5)',
+                  }}
+                >
                   {report.riasecCode}
                 </span>
               </div>
@@ -793,35 +945,108 @@ export default function InformeVocacional({ markdown, onDownload }) {
           <div className="max-w-4xl mr-auto">
             
             <DocSection id="riasec" title="1. Análisis de tu Código Holland" icon={UserCheck}>
-              {report.hollandExplicacion ? (
-                <div className="text-lg leading-relaxed space-y-5 text-gray-700 mb-10">
-                  {report.hollandExplicacion.split(/\n{2,}/).filter(Boolean).map((p, i) => (
-                    <p key={i} dangerouslySetInnerHTML={{ __html: clean(p) }} className="text-justify" />
+
+              {/* Intro paragraph from Gemini (personalised) */}
+              {report.hollandIntro ? (
+                <div className="text-base text-gray-700 leading-relaxed space-y-3 mb-8">
+                  {report.hollandIntro.split(/\n{2,}/).filter(Boolean).map((p, i) => (
+                    <p key={i} className="text-justify" dangerouslySetInnerHTML={{ __html: clean(p) }} />
                   ))}
                 </div>
               ) : (
-                <p className="text-lg leading-relaxed mb-10 text-gray-700">
-                  El modelo Holland clasifica tu personalidad en 6 dimensiones. Tu combinación única revela qué entornos laborales te resultarán más naturales y gratificantes.
+                <p className="text-base text-gray-600 mb-8">
+                  El modelo Holland clasifica tu personalidad en 6 dimensiones (RIASEC). Tu combinación única revela qué entornos laborales te resultarán más naturales y gratificantes.
                 </p>
               )}
-              
-              <h3 className="text-xl font-bold text-gray-900 mb-6 border-t border-gray-100 pt-8">
-                Desglose Dimensional y Gráfico
+
+              {/* Radar chart */}
+              <h3 className="text-lg font-bold text-gray-900 mb-4">
+                Gráfico de tu Perfil
               </h3>
               <RiasecRadar scores={report.riasecScores} />
 
-              {report.riasecScores?.length > 0 && (
-                <div className="mt-12 space-y-8">
-                  <h3 className="text-xl font-bold text-gray-900 mb-6 border-t border-gray-100 pt-8">
-                    Tus Dimensiones en Detalle
-                  </h3>
-                  {[...report.riasecScores]
-                    .sort((a, b) => b.pct - a.pct)
-                    .map((score) => (
-                      <RiasecCard key={score.dim} score={score} />
-                  ))}
-                </div>
-              )}
+              {/* Dimension cards */}
+              {report.riasecScores?.length > 0 && (() => {
+                const sorted = [...report.riasecScores].sort((a, b) => b.pct - a.pct);
+                // Dominant = dimensions in the riasecCode
+                const dominantDims = new Set(report.riasecCode?.split('') ?? []);
+                const dominant  = sorted.filter(s => dominantDims.has(s.dim));
+                const secondary = sorted.filter(s => !dominantDims.has(s.dim));
+
+                return (
+                  <div className="mt-10 space-y-10">
+
+                    {/* Dominant dimensions */}
+                    {dominant.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-3 mb-6 border-t border-gray-100 pt-8">
+                          <span
+                            className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-white"
+                            style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)' }}
+                          >
+                            Dimensiones Dominantes
+                          </span>
+                          <span className="text-xs text-gray-400">Tu núcleo de personalidad vocacional</span>
+                        </div>
+                        <div className="space-y-6">
+                          {dominant.map(score => (
+                            <HollandDimensionCard
+                              key={score.dim}
+                              score={score}
+                              dynamicDetails={report.hollandDimensions?.[score.dim]}
+                              featured
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Secondary dimensions */}
+                    {secondary.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-3 mb-6 pt-4">
+                          <div className="flex-1 h-px bg-gray-100" />
+                          <span className="px-3 py-1 rounded-full text-xs font-semibold text-gray-500 bg-gray-100 uppercase tracking-wider whitespace-nowrap">
+                            Dimensiones Secundarias
+                          </span>
+                          <div className="flex-1 h-px bg-gray-100" />
+                        </div>
+                        <p className="text-sm text-gray-500 mb-6">
+                          Estas dimensiones también forman parte de tu perfil y pueden influir en tu trayectoria profesional, aunque con menos intensidad.
+                        </p>
+                        <div className="space-y-4">
+                          {secondary.map(score => (
+                            <HollandDimensionCard
+                              key={score.dim}
+                              score={score}
+                              dynamicDetails={report.hollandDimensions?.[score.dim]}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Conclusion / synthesis paragraph */}
+                    {report.hollandConclusion && (
+                      <div
+                        className="rounded-2xl p-6 md:p-8 border"
+                        style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #eff6ff 100%)', borderColor: '#ddd6fe' }}
+                      >
+                        <div className="flex items-start gap-3">
+                          <Sparkles size={20} className="text-purple-500 flex-shrink-0 mt-0.5" />
+                          <div className="text-gray-800 leading-relaxed space-y-3">
+                            {report.hollandConclusion.split(/\n{2,}/).filter(Boolean).map((p, i) => (
+                              <p key={i} className="text-base" dangerouslySetInnerHTML={{ __html: clean(p) }} />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+                );
+              })()}
+
             </DocSection>
 
             {report.psicologico && (
