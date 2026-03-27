@@ -8,16 +8,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Services\ProfesionComparadorService;
 use App\Services\GeminiService;
+use App\Services\CareerMatchingService;
 use App\Models\VocationalSession;
 use App\Models\VocationalProfile;
 
 class UserTestController extends Controller
 {
     protected GeminiService $gemini;
+    protected CareerMatchingService $careerMatcher;
 
-    public function __construct(GeminiService $gemini)
+    public function __construct(GeminiService $gemini, CareerMatchingService $careerMatcher)
     {
         $this->gemini = $gemini;
+        $this->careerMatcher = $careerMatcher;
     }
 
     // ============================================
@@ -336,6 +339,8 @@ class UserTestController extends Controller
      */
     public function listResults()
     {
+        set_time_limit(180); // Regeneración puede tardar por Gemini + Pexels
+
         try {
             $user = Auth::user();
             if (!$user) {
@@ -383,10 +388,10 @@ class UserTestController extends Controller
                         $profileData['_raw_history'] = $historyLog;
                     }
 
-                    // Generar informe y recomendaciones directamente con Gemini
+                    // Generar profesiones del catálogo + informe con narrativa
                     try {
-                        $reportMarkdown = $this->gemini->generateReport($profileData);
-                        $profesiones = $this->gemini->generateCareerRecommendations($profileData, $reportMarkdown);
+                        $profesiones = $this->careerMatcher->match($profileData);
+                        $reportMarkdown = $this->gemini->generateReport($profileData, $profesiones);
 
                         if (!empty($profesiones) && is_array($profesiones)) {
                             foreach ($profesiones as &$profesion) {
@@ -413,15 +418,6 @@ class UserTestController extends Controller
                                 }
                             }
                             unset($profesion);
-                        }
-
-                        // Fallback si Gemini no devuelve profesiones
-                        if (empty($profesiones)) {
-                            $profesiones = [
-                                ['titulo' => 'Consultor de Carrera', 'descripcion' => 'Tu perfil muestra capacidades analíticas y de comunicación que encajan con la orientación profesional.', 'salidas' => 'Orientador laboral, Coach profesional, Consultor RRHH', 'nivel' => 'Grado Universitario', 'sector' => 'Servicios', 'match_porcentaje' => 75],
-                                ['titulo' => 'Analista de Datos', 'descripcion' => 'Tu perfil investigativo y sistemático te posiciona bien en el mundo de los datos y la analítica.', 'salidas' => 'Data Analyst, Business Analyst, Analista BI', 'nivel' => 'Grado Universitario o FP Superior', 'sector' => 'Tecnología', 'match_porcentaje' => 70],
-                                ['titulo' => 'Coordinador de Proyectos', 'descripcion' => 'Tu capacidad organizativa y de planificación encaja con la gestión de proyectos en múltiples sectores.', 'salidas' => 'Project Manager, Coordinador de área, Responsable de operaciones', 'nivel' => 'Grado Universitario', 'sector' => 'Transversal', 'match_porcentaje' => 65],
-                            ];
                         }
 
                         // Persistir resultados para futuros accesos

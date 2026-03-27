@@ -191,7 +191,7 @@ EOT;
      * Si el perfil tiene _raw_history, usa las respuestas directas del usuario
      * para inferir su perfil vocacional sin depender de los scores del motor.
      */
-    public function generateReport(array $profileData): string
+    public function generateReport(array $profileData, array $matchedCareers = []): string
     {
         // Construir bloque de scores RIASEC si existen
         $riasecBlock = '';
@@ -257,17 +257,29 @@ Lista de exactamente 5 habilidades clave (con bullet points), cada una con:
 - Por qué el usuario la tiene (basado en el perfil)
 - Cómo puede potenciarla
 
-## 4. Top 3 Caminos Profesionales
-Para cada profesión recomendada:
-- **Título del Rol**
-- Compatibilidad RIASEC: XX%
-- Por qué encaja con tu perfil
-- Salidas laborales concretas (3 roles)
-- Formación recomendada
-- Primeros 3 pasos para llegar ahí
+## 4. Tus Caminos Profesionales Recomendados
+IMPORTANTE: Las profesiones ya han sido pre-seleccionadas por el algoritmo de matching RIASEC. Se te proporcionarán en el prompt del usuario bajo "PROFESIONES PRE-SELECCIONADAS". Tu labor es ÚNICAMENTE generar la narrativa personalizada para cada una.
+
+Para CADA profesión proporcionada, escribe:
+### **[Título exacto de la profesión]**
+- **Compatibilidad RIASEC:** [usa el match_porcentaje proporcionado]%
+- **Por qué encaja contigo:** Párrafo de 2-3 frases personalizado que conecte el perfil RIASEC del usuario con esta profesión concreta. NO inventes datos; basa tu análisis en los scores RIASEC.
+- **Salidas profesionales:** [usa las salidas proporcionadas]
+- **Formación recomendada:** [usa la ruta formativa proporcionada]
+- **Primeros 3 pasos:** 3 acciones concretas y realistas para empezar
+
+NO inventes, modifiques ni añadas profesiones. Usa EXACTAMENTE las que se proporcionan.
 
 ## 5. Áreas de Crecimiento
-Brief (80-100 palabras) sobre 2-3 áreas en las que el usuario puede mejorar para potenciar su perfil vocacional.
+Exactamente 2 áreas de mejora basadas en las dimensiones RIASEC más bajas del usuario. Formato estricto:
+
+1. **Nombre del Área (letra RIASEC):**
+Párrafo de 3-4 frases explicando por qué esta área es relevante para el usuario y cómo puede desarrollarla. Relaciona la dimensión RIASEC baja con habilidades concretas que beneficiarían su perfil.
+
+2. **Nombre del Área (letra RIASEC):**
+Párrafo de 3-4 frases explicando por qué esta área es relevante para el usuario y cómo puede desarrollarla. Relaciona la dimensión RIASEC baja con habilidades concretas que beneficiarían su perfil.
+
+Las 2 áreas deben ser complementarias y no repetitivas. Cada área es solo un título en negrita seguido de un párrafo descriptivo. NO uses sub-secciones, bullets ni listas dentro de cada área.
 
 ## 6. Mensaje Final de tu Mentor
 Párrafo corto y personal (60-80 palabras) con un mensaje motivador, personalizado para el perfil del usuario.
@@ -286,14 +298,28 @@ EOT;
             $prompt = "Genera un informe vocacional completo para un usuario que acaba de responder un test vocacional adaptativo.";
         }
 
+        // Inyectar profesiones pre-seleccionadas del catálogo
+        if (!empty($matchedCareers)) {
+            $careersBlock = "\n\nPROFESIONES PRE-SELECCIONADAS POR EL ALGORITMO DE MATCHING (usa EXACTAMENTE estas):";
+            foreach ($matchedCareers as $idx => $career) {
+                $num = $idx + 1;
+                $salidas = is_array($career['salidas'] ?? null) ? implode(', ', $career['salidas']) : ($career['salidas'] ?? '');
+                $careersBlock .= "\n{$num}. {$career['titulo']} (Sector: {$career['sector']}, Match: {$career['match_porcentaje']}%)"
+                    . "\n   Salidas: {$salidas}"
+                    . "\n   Formación: " . ($career['ruta_formativa'] ?? $career['nivel_formacion'] ?? '');
+            }
+            $prompt .= $careersBlock;
+        }
+
         $response = $this->callGemini($prompt, false, $systemInstruction, 8192);
         return $response['text'] ?? '';
     }
 
     /**
-     * PROMPT 4: CAREER RECOMMENDATIONS
-     * Genera exactamente 3 profesiones recomendadas basadas en el perfil RIASEC.
-     * A diferencia de generateReport() (markdown), devuelve JSON estructurado.
+     * PROMPT 4: CAREER RECOMMENDATIONS (DEPRECADO - ahora usa CareerMatchingService)
+     *
+     * Mantenido por compatibilidad con el flujo legacy (TestSesion).
+     * Para el flujo moderno, las profesiones vienen del catálogo vía CareerMatchingService.
      */
     public function generateCareerRecommendations(array $profileData, string $reportMarkdown = ''): array
     {

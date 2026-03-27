@@ -11,16 +11,19 @@ use App\Models\VocationalProfile;
 use App\Models\IdempotencyKey;
 use App\Services\VocationalEngineService;
 use App\Services\GeminiService;
+use App\Services\CareerMatchingService;
 
 class TestController extends Controller
 {
     protected $engine;
     protected $gemini;
+    protected $careerMatcher;
 
-    public function __construct(VocationalEngineService $engine, GeminiService $gemini)
+    public function __construct(VocationalEngineService $engine, GeminiService $gemini, CareerMatchingService $careerMatcher)
     {
         $this->engine = $engine;
         $this->gemini = $gemini;
+        $this->careerMatcher = $careerMatcher;
     }
 
     /**
@@ -272,12 +275,15 @@ class TestController extends Controller
             return response()->json(['error' => 'Perfil no encontrado'], 404);
         }
 
-        $reportMarkdown = $this->gemini->generateReport($profile->toArray());
+        $profileData = $profile->toArray();
+        $profesiones = $this->careerMatcher->match($profileData);
+        $reportMarkdown = $this->gemini->generateReport($profileData, $profesiones);
 
         return response()->json([
             'success' => true,
             'report_markdown' => $reportMarkdown,
-            'scores' => $profile
+            'scores' => $profile,
+            'profesiones' => $profesiones,
         ]);
     }
 
@@ -290,6 +296,8 @@ class TestController extends Controller
      */
     public function analizarResultados(Request $request)
     {
+        set_time_limit(180); // Gemini + Pexels pueden tardar >60s
+
         $request->validate(['session_id' => 'required']);
 
         // Resolve session — try modern first, then legacy TestSesion
@@ -370,11 +378,11 @@ class TestController extends Controller
                 $profileData['_raw_history'] = $historyLog;
             }
 
-            // 2. Generar informe en Markdown
-            $reportMarkdown = $this->gemini->generateReport($profileData);
+            // 2. Obtener profesiones del catálogo via matching RIASEC
+            $profesiones = $this->careerMatcher->match($profileData);
 
-            // 3. Generar las 3 profesiones estructuradas
-            $profesiones = $this->gemini->generateCareerRecommendations($profileData, $reportMarkdown);
+            // 3. Generar informe en Markdown (con las profesiones pre-seleccionadas)
+            $reportMarkdown = $this->gemini->generateReport($profileData, $profesiones);
 
             // 3.b. Generar y asignar imágenes a cada profesión antes de guardar
             if (!empty($profesiones) && is_array($profesiones)) {
@@ -402,15 +410,6 @@ class TestController extends Controller
                     }
                 }
                 unset($prof);
-            }
-
-            // Fallback si Gemini no devuelve profesiones
-            if (empty($profesiones)) {
-                $profesiones = [
-                    ['titulo' => 'Consultor de Carrera', 'descripcion' => 'Tu perfil muestra capacidades analíticas y de comunicación que encajan con la orientación profesional.', 'salidas' => 'Orientador laboral, Coach profesional, Consultor RRHH', 'nivel' => 'Grado Universitario', 'sector' => 'Servicios', 'match_porcentaje' => 75],
-                    ['titulo' => 'Analista de Datos', 'descripcion' => 'Tu perfil investigativo y sistemático te posiciona bien en el mundo de los datos y la analítica.', 'salidas' => 'Data Analyst, Business Analyst, Analista BI', 'nivel' => 'Grado Universitario o FP Superior', 'sector' => 'Tecnología', 'match_porcentaje' => 70],
-                    ['titulo' => 'Coordinador de Proyectos', 'descripcion' => 'Tu capacidad organizativa y de planificación encaja con la gestión de proyectos en múltiples sectores.', 'salidas' => 'Project Manager, Coordinador de área, Responsable de operaciones', 'nivel' => 'Grado Universitario', 'sector' => 'Transversal', 'match_porcentaje' => 65],
-                ];
             }
 
             // 4. Marcar sesión como completada
