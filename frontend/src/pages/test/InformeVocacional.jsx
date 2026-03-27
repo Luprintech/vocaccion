@@ -113,7 +113,7 @@ function parseMarkdown(md) {
     title: '', riasecScores: [], riasecCode: '', hollandExplicacion: '',
     hollandDimensions: {}, hollandIntro: '', hollandConclusion: '',
     psicologico: '', superpowers: [], careers: [],
-    growthAreas: [], message: '',
+    growthIntro: '', growthAreas: [], message: '',
   };
 
   const lines = md.split('\n');
@@ -202,6 +202,7 @@ function parseMarkdown(md) {
       if (scoreRegex.test(line) || tableRowRx.test(line) || keywordPercentRx.test(line)) return false;
       if (line.match(/^\s*\|.*\|.*\s*$/) || line.match(/\|\s*[:-]+\s*\|/)) return false;
       if (line.match(/A continuación.*(desglose|puntuaciones|tabla)/i)) return false;
+      if (line.match(/Aqu[íi] tienes un resumen/i)) return false;
       if (line.includes('pts') || line.match(/\d+%\s*\|/)) return false;
       return true;
     })
@@ -213,6 +214,45 @@ function parseMarkdown(md) {
   result.hollandDimensions = hollandParsed.dims;
   result.hollandIntro      = hollandParsed.intro;
   result.hollandConclusion = hollandParsed.conclusion;
+
+  // Integrar párrafos narrativos del intro/conclusion dentro de cada dimensión
+  const dimLabelMap = {
+    'R': /\b(?:realista|manual)\b/i,
+    'I': /\b(?:investigador|anal[ií]tic)/i,
+    'A': /\b(?:art[ií]stic|creativ)/i,
+    'S': /\b(?:social|humanist)/i,
+    'E': /\b(?:emprendedor|l[ií]der)/i,
+    'C': /\b(?:convencional|met[óo]dic)/i,
+  };
+  const narrativeSource = [result.hollandIntro, result.hollandConclusion].filter(Boolean).join('\n\n');
+  if (narrativeSource) {
+    const paragraphs = narrativeSource.split(/\n{2,}/).filter(p => p.trim());
+    const generalParts = [];
+    for (const para of paragraphs) {
+      // Detectar si el párrafo es específico de una dimensión
+      const isDimSpecific = /\b(?:dimensi[oó]n|rasgo|componente)\s+(?:del?\s+)?(?:tipo\s+)?/i.test(para);
+      let matched = false;
+      if (isDimSpecific) {
+        for (const [dim, rx] of Object.entries(dimLabelMap)) {
+          if (rx.test(para)) {
+            if (!result.hollandDimensions[dim]) {
+              result.hollandDimensions[dim] = { description: '', workStyle: null, tasks: null, environment: null, strengths: null };
+            }
+            // Prepend narrative description (richer than static) — preserve existing if any
+            const existing = result.hollandDimensions[dim].description || '';
+            result.hollandDimensions[dim].description = para.replace(/\*\*/g, '').trim() + (existing ? '\n\n' + existing : '');
+            matched = true;
+            break;
+          }
+        }
+      }
+      if (!matched) {
+        generalParts.push(para);
+      }
+    }
+    // Keep only the general (non-dimension-specific) text as intro
+    result.hollandIntro = generalParts.join('\n\n').trim();
+  }
 
   // 2. Retrato
   result.psicologico = sectionText('retrato') || sectionText('psicol') || sectionText('descripción');
@@ -258,7 +298,7 @@ function parseMarkdown(md) {
   }
 
   // 4. Careers
-  const careerText = sectionText('caminos') || sectionText('profesion') || sectionText('top 3');
+  const careerText = sectionText('caminos') || sectionText('profesion') || sectionText('top 3') || sectionText('recomendados');
   if (careerText) {
     const careerBlocks = careerText.split(/\n(?=###|\*\*[A-ZÁÉÍÓÚÜÑ])/);
     result.careers = careerBlocks.map(block => {
@@ -317,28 +357,25 @@ function parseMarkdown(md) {
         .filter(l => l && l !== '*' && l !== '-');
 
       return { title, compat, compatDetails, why, salidas, formacion, steps };
-    }).filter(b => b && b.title).slice(0, 3);
+    }).filter(b => b && b.title).slice(0, 6);
   }
 
   // 5. Growth
   const growthText = sectionText('crecimiento') || sectionText('áreas de') || sectionText('areas de');
   if (growthText) {
-    const areaBlocks = growthText.split(/\n(?=\s*\d+\.\s*\*\*|\s*\*\*[A-ZÁÉÍÓÚÜÑ]|\s*###)/);
+    // Separate intro (text before first numbered area) from area blocks
+    const firstAreaIdx = growthText.search(/\n\s*\d+\.\s*\*\*/);
+    if (firstAreaIdx > 0) {
+      result.growthIntro = growthText.slice(0, firstAreaIdx).replace(/\*\*/g, '').trim();
+    }
+    const areasText = firstAreaIdx > 0 ? growthText.slice(firstAreaIdx) : growthText;
+    const areaBlocks = areasText.split(/\n(?=\s*\d+\.\s*\*\*)/).filter(b => b.trim());
     const parsed = areaBlocks.map(block => {
       const nameMatch = block.match(/\*\*([^*]+)\*\*/);
-      const name = nameMatch ? nameMatch[1].replace(/^[\d.]+\s*/, '').trim() : '';
-      const rest = block.replace(/\*\*[^*]+\*\*/, '').trim();
-      const extractSub = (label, text) => {
-        const rx = new RegExp(`${label}[:\\s]+([\\s\\S]+?)(?=\\n\\s*[-*]|\\n\\s*\\*\\*|$)`, 'i');
-        return text.match(rx)?.[1]?.replace(/\*\*/g, '').trim() || '';
-      };
-      const why = extractSub('por qué|importancia|relevancia|impacto', rest);
-      const how = extractSub('cómo mejorar|cómo trabajar|cómo desarrollar|cómo|pasos', rest);
-      
-      const sentences = rest.split(/(?<=[.!?])\s+/).filter(Boolean);
-      const half = Math.ceil(sentences.length / 2);
-      return { title: name || `Área de desarrollo`, why: why || sentences.slice(0, half).join(' '), how: how || sentences.slice(half).join(' ') };
-    }).filter(b => b.title && (b.why || b.how));
+      const name = nameMatch ? nameMatch[1].replace(/^[\d.]+\s*/, '').replace(/:$/, '').trim() : '';
+      const description = block.replace(/^\s*\d+\.\s*/, '').replace(/\*\*[^*]+\*\*/, '').replace(/^[:\s]+/, '').trim();
+      return { title: name, description };
+    }).filter(b => b.title && b.description);
     result.growthAreas = parsed.slice(0, 2);
   }
 
@@ -364,48 +401,69 @@ function parseHollandDimensions(text) {
   const dims = {};
   const cleanText = text.replace(/\*\*/g, '');
 
-  let intro = '';
-  let conclusion = '';
+  // Build a single regex alternative that matches any dimension header
+  // Gemini formats:  * I (Investigador/Analítico):  |  * Investigador (I):  |  * Investigador:
+  const dimNamesGroup = KNOWN_LABELS.map(l => l.pattern).join('|');
+  const dimHeaderSrc =
+    `\\s*[*\\-]?\\s*(?:` +
+    `[RIASEC]\\s*\\((?:${dimNamesGroup})[^)]*\\)` +
+    `|(?:${dimNamesGroup})\\s*(?:\\([RIASEC]\\))?` +
+    `)\\s*[:\\-\\.]`;
+  const dimHeaderRxG = new RegExp(`(?:^|\\n)${dimHeaderSrc}`, 'gi');
 
-  const dimCapturingRx = /(?:^|\n)[\s\*]*[*\-]?(?:\s*)(Investigador|Realista|Art[íi]stico|Social|Emprendedor|Convencional)\s*(?:\([RIASEC]\))?\s*[:\-\.]/i;
-
-  const firstMatch = cleanText.match(dimCapturingRx);
-  if (firstMatch) {
-    intro = cleanText.substring(0, firstMatch.index).trim();
-  } else {
-    return { dims, intro: cleanText.trim(), conclusion: '' };
+  // 1) Find ALL dimension header positions so we can extract trailing conclusion
+  const allHeaders = [];
+  let hm;
+  while ((hm = dimHeaderRxG.exec(cleanText)) !== null) {
+    allHeaders.push({ index: hm.index, length: hm[0].length });
   }
 
+  if (allHeaders.length === 0) {
+    return { dims: {}, intro: cleanText.trim(), conclusion: '' };
+  }
+
+  // intro = everything before first dimension header
+  const intro = cleanText.substring(0, allHeaders[0].index).trim();
+
+  // conclusion = everything after the block of the LAST dimension header
+  //   We find the last header and grab its textAfter, then strip its block content.
+  let conclusion = '';
+
+  // 2) Parse each dimension
   KNOWN_LABELS.forEach(({key, pattern}) => {
-    const startRx = new RegExp(`(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)${pattern}\\s*(?:\\([RIASEC]\\))?\\s*[:\\-\\.]`, 'i');
+    const startRx = new RegExp(
+      `(?:^|\\n)\\s*[*\\-]?\\s*(?:` +
+      `${key}\\s*\\(${pattern}[^)]*\\)` +
+      `|${pattern}\\s*(?:\\(${key}\\))?` +
+      `)\\s*[:\\-\\.]`,
+      'i'
+    );
     const startMatch = cleanText.match(startRx);
     if (!startMatch) return;
 
     let textAfter = cleanText.substring(startMatch.index + startMatch[0].length);
-    
-    const otherPatterns = KNOWN_LABELS.filter(l => l.key !== key).map(l => l.pattern);
-    const cutRx = new RegExp(`(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:${otherPatterns.join('|')})\\s*(?:\\([RIASEC]\\))?\\s*[:\\-\\.]`, 'i');
+
+    const otherKeys = KNOWN_LABELS.filter(l => l.key !== key);
+    const otherAlts = otherKeys.map(l =>
+      `${l.key}\\s*\\(${l.pattern}[^)]*\\)|${l.pattern}\\s*(?:\\(${l.key}\\))?`
+    ).join('|');
+    const cutRx = new RegExp(`(?:^|\\n)\\s*[*\\-]?\\s*(?:${otherAlts})\\s*[:\\-\\.]`, 'i');
     const cutMatch = textAfter.match(cutRx);
 
-    let blockText = '';
-    if (cutMatch) {
-      blockText = textAfter.substring(0, cutMatch.index);
-    } else {
-      blockText = textAfter;
-      const paragraphs = blockText.split(/\n\s*\n/);
-      if (paragraphs.length > 1) {
-          const lastPara = paragraphs[paragraphs.length - 1].trim();
-          if (!lastPara.match(/^[\*\-]/)) {
-              conclusion = lastPara;
-              blockText = paragraphs.slice(0, -1).join('\n\n');
-          }
-      }
-    }
+    let blockText = cutMatch
+      ? textAfter.substring(0, cutMatch.index)
+      : textAfter;
+
+    // Sub-field extraction
+    const ALL_FIELDS = 'Estilo de trabajo[^:]*|Tipo de tareas[^:]*|Tipo de actividades[^:]*|Entorno laboral[^:]*|Entorno ideal[^:]*|Fortalezas naturales[^:]*|Fortalezas[^:]*';
 
     const extractField = (labels) => {
-      const fieldRx = new RegExp('(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:)[a-zA-ZáéíóúÁÉÍÓÚ\\s]*\\s*[:\\-\\.]\\s*([\\s\\S]*?)(?=(?:^|\\n)[\\s\\*]*[*\\-]?(?:\\s*)(?:Estilo de trabajo|Tipo de tareas|Tipo de actividades|Entorno laboral|Entorno ideal|Fortalezas)|$)', 'i');
-      const m2 = blockText.match(fieldRx);
-      return m2 ? m2[1].replace(/^[*\s]+|[*\s]+$/g, '').trim() : null;
+      const rx = new RegExp(
+        `(?:${labels})[^:]*:\\s*([\\s\\S]*?)(?=\\s*\\*\\s*(?:${ALL_FIELDS}):|$)`,
+        'i'
+      );
+      const m = blockText.match(rx);
+      return m ? m[1].replace(/\*\*/g, '').replace(/^\s+|\s+$/g, '').trim() || null : null;
     };
 
     const workStyle   = extractField('Estilo de trabajo');
@@ -413,12 +471,44 @@ function parseHollandDimensions(text) {
     const environment = extractField('Entorno laboral|Entorno ideal');
     const strengths   = extractField('Fortalezas naturales|Fortalezas');
 
-    const firstFieldMatch = blockText.match(/(?:^|\n)[\s\*]*[*\-]?(?:\s*)(?:Estilo de trabajo|Tipo de tareas|Tipo de actividades|Entorno laboral|Entorno ideal|Fortalezas)/i);
+    // Description = everything before first field marker
+    const firstFieldRx = new RegExp(`\\s*\\*\\s*(?:${ALL_FIELDS}):`, 'i');
+    const firstFieldMatch = blockText.match(firstFieldRx);
     const descRaw = firstFieldMatch ? blockText.substring(0, firstFieldMatch.index) : blockText;
     const description = descRaw.replace(/^[*\s]+|[*\s]+$/g, '').trim();
 
     dims[key] = { description, workStyle, tasks, environment, strengths };
   });
+
+  // 3) Extract conclusion: text AFTER the last dimension's block
+  //    Find how far the last dimension extends (up to last field like Fortalezas)
+  const lastH = allHeaders[allHeaders.length - 1];
+  const textAfterLastDim = cleanText.substring(lastH.index + lastH.length);
+
+  // The dimension's content ends where its sub-fields end.
+  // Look for any paragraph that doesn't start with * (field marker) and isn't a field label.
+  const fieldLabelsRx = /Estilo de trabajo|Tipo de tareas|Tipo de actividades|Entorno laboral|Entorno ideal|Fortalezas/i;
+  const paragraphs = textAfterLastDim.split(/\n\s*\n/);
+  const conclusionParts = [];
+  let insideDimFields = true;
+
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+
+    // If it looks like a dimension field, we're still inside the last dim's content
+    if (insideDimFields && (trimmed.match(/^\s*\*\s*/) || fieldLabelsRx.test(trimmed))) {
+      continue;
+    }
+
+    // Once we hit a paragraph that doesn't look like a field, everything after is conclusion
+    insideDimFields = false;
+    // Skip filler lines like "Aquí tienes un resumen..."
+    if (trimmed.match(/Aqu[íi] tienes un resumen/i)) continue;
+    conclusionParts.push(trimmed);
+  }
+
+  conclusion = conclusionParts.join('\n\n').trim();
 
   const cleanFinale = (t) => t.replace(/^#+.*$/mg, '').trim();
   return { dims, intro: cleanFinale(intro), conclusion: cleanFinale(conclusion) };
@@ -563,7 +653,7 @@ function HollandDimensionCard({ score, dynamicDetails }) {
       </div>
 
       {description && (
-        <p className="px-6 md:px-8 pb-6 text-base text-gray-700 leading-relaxed">
+        <p className="px-6 md:px-8 pb-6 text-base text-gray-700 leading-relaxed text-justify">
           {description}
         </p>
       )}
@@ -583,7 +673,7 @@ function HollandDimensionCard({ score, dynamicDetails }) {
                   <span style={{ color: block.iconColor }}>{block.icon}</span>
                   {block.label}
                 </h5>
-                <p className="text-sm text-slate-800 leading-relaxed m-0">
+                <p className="text-sm text-slate-800 leading-relaxed m-0 text-justify">
                   {block.text}
                 </p>
               </div>
@@ -834,41 +924,13 @@ function GrowthBlock({ area, index }) {
 
   return (
     <div className="rounded-2xl p-6 md:p-8" style={{ backgroundColor: slot.bg, border: `1px solid ${slot.border}` }}>
-      <h3 className="text-lg font-bold mb-6 flex items-center gap-3" style={{ color: slot.text }}>
+      <h3 className="text-lg font-bold mb-4 flex items-center gap-3" style={{ color: slot.text }}>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white" style={{ border: `1px solid ${slot.border}` }}>
           <TrendingUp size={16} color={slot.icon} />
         </div>
         {area.title}
       </h3>
-      <div className="space-y-6">
-        {area.why && (
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider mb-2 opacity-75" style={{ color: slot.text }}>
-              Por qué es fundamental
-            </h4>
-            <p className="text-sm leading-relaxed" style={{ color: slot.text }} dangerouslySetInnerHTML={{ __html: clean(area.why) }} />
-          </div>
-        )}
-        {area.how && (
-          <div className="rounded-xl p-5 bg-white/60" style={{ border: `1px solid ${slot.border}66` }}>
-            <h4 className="text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: slot.text }}>
-              <Sparkles size={14} /> Acciones recomendadas
-            </h4>
-            {area.how.includes('\n') ? (
-              <ul className="space-y-3 m-0 p-0 list-none">
-                {area.how.split('\n').filter(Boolean).map((line, i) => (
-                  <li key={i} className="flex items-start gap-2.5 text-sm leading-relaxed" style={{ color: slot.text }}>
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: slot.icon }} />
-                    <span dangerouslySetInnerHTML={{ __html: clean(line.replace(/^[-*]\s*/, '')) }} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm leading-relaxed m-0" style={{ color: slot.text }} dangerouslySetInnerHTML={{ __html: clean(area.how) }} />
-            )}
-          </div>
-        )}
-      </div>
+      <p className="text-sm leading-relaxed m-0" style={{ color: slot.text }} dangerouslySetInnerHTML={{ __html: clean(area.description || '') }} />
     </div>
   );
 }
@@ -895,7 +957,7 @@ function TableOfContents() {
     { id: 'riasec', label: '1. Modelo Holland RIASEC' },
     { id: 'portrait', label: '2. Retrato Psicológico' },
     { id: 'superpowers', label: '3. Superpoderes Clave' },
-    { id: 'careers', label: '4. Caminos Profesionales' },
+    { id: 'careers', label: '4. Caminos Profesionales Recomendados' },
     { id: 'growth', label: '5. Áreas de Crecimiento' },
     { id: 'message', label: '6. Mensaje del Mentor' },
   ];
@@ -1099,22 +1161,22 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
             <DocSection id="riasec" title="1. Análisis de tu Código Holland" icon={UserCheck}>
 
               {report.hollandIntro ? (
-                <div className="text-base text-gray-700 leading-relaxed space-y-3 mb-8">
+                <div className="text-base text-gray-700 leading-relaxed space-y-3 mb-8 text-justify">
                   {report.hollandIntro.split(/\n{2,}/).filter(Boolean).map((p, i) => (
                     <p key={i} className="text-justify" dangerouslySetInnerHTML={{ __html: clean(p) }} />
                   ))}
                 </div>
               ) : (
-                <p className="text-base text-gray-600 mb-8">
-                  El modelo Holland clasifica tu personalidad en 6 dimensiones (RIASEC). Tu combinación única revela qué entornos laborales te resultarán más naturales y gratificantes.
+                <p className="text-base text-gray-600 mb-8 text-justify">
+                  El modelo Holland clasifica tu personalidad en 6 dimensiones (RIASEC). A continuación se muestran las dimensiones relevantes de tu perfil.
                 </p>
               )}
 
               {report.riasecScores?.length > 0 && (() => {
                 const sorted = [...report.riasecScores].sort((a, b) => b.pct - a.pct);
                 const dominantDims = new Set(report.riasecCode?.split('') ?? []);
-                const dominant  = sorted.filter(s => dominantDims.has(s.dim));
-                const secondary = sorted.filter(s => !dominantDims.has(s.dim));
+                const dominant  = sorted.filter(s => dominantDims.has(s.dim) && s.pct > 0);
+                const secondary = sorted.filter(s => !dominantDims.has(s.dim) && s.pct > 5);
 
                 return (
                   <div className="mt-10 space-y-10">
@@ -1148,13 +1210,10 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
                         <div className="flex items-center gap-3 mb-6 pt-4">
                           <div className="flex-1 h-px bg-gray-100" />
                           <span className="px-3 py-1 rounded-full text-xs font-semibold text-gray-500 bg-gray-100 uppercase tracking-wider whitespace-nowrap">
-                            Dimensiones Secundarias
+                            Dimensiones Complementarias
                           </span>
                           <div className="flex-1 h-px bg-gray-100" />
                         </div>
-                        <p className="text-sm text-gray-500 mb-6">
-                          Estas dimensiones también forman parte de tu perfil y pueden influir en tu trayectoria profesional, aunque con menos intensidad.
-                        </p>
                         <div className="space-y-4">
                           {secondary.map(score => (
                             <HollandDimensionCard
@@ -1174,22 +1233,6 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
                       </h3>
                       <RiasecRadar scores={report.riasecScores} />
                     </div>
-
-                    {report.hollandConclusion && (
-                      <div
-                        className="rounded-2xl p-6 md:p-8 border"
-                        style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #eff6ff 100%)', borderColor: '#ddd6fe' }}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Sparkles size={20} className="text-purple-500 flex-shrink-0 mt-0.5" />
-                          <div className="text-gray-800 leading-relaxed space-y-3">
-                            {report.hollandConclusion.split(/\n{2,}/).filter(Boolean).map((p, i) => (
-                              <p key={i} className="text-base" dangerouslySetInnerHTML={{ __html: clean(p) }} />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
 
                   </div>
                 );
@@ -1217,9 +1260,9 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
             )}
 
             {report.careers.length > 0 && (
-              <DocSection id="careers" title="4. Caminos Profesionales de Alto Impacto" icon={Briefcase}>
+              <DocSection id="careers" title="4. Tus Caminos Profesionales Recomendados" icon={Briefcase}>
                 <p className="text-base text-gray-600 mb-8">
-                  Perfiles profesionales analizados exhaustivamente contra tu código Holland. Incluyen porcentajes de compatibilidad, salidas reales y la hoja de ruta académica necesaria.
+                  Profesiones seleccionadas por nuestro algoritmo de matching RIASEC a partir de un catálogo de profesiones reales (clasificación CNO/ESCO). Incluyen compatibilidad, salidas concretas y ruta formativa.
                 </p>
                 {report.careers.map((c, i) => (
                   <CareerBlock
@@ -1238,7 +1281,7 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
             {report.growthAreas.length > 0 && (
               <DocSection id="growth" title="5. Áreas Estratégicas de Crecimiento" icon={TrendingUp}>
                 <p className="text-base text-gray-600 mb-8">
-                  Dimensiones transversales que potenciarán tu empleabilidad y te permitirán alcanzar puestos de mayor responsabilidad u opciones de carrera más complejas.
+                  {report.growthIntro || 'Dimensiones transversales que potenciarán tu empleabilidad y te permitirán alcanzar puestos de mayor responsabilidad u opciones de carrera más complejas.'}
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {report.growthAreas.map((area, i) => <GrowthBlock key={i} area={area} index={i} />)}
@@ -1250,9 +1293,12 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
               <DocSection id="message" title="6. Veredicto del Mentor" icon={Star}>
                 <div className="bg-gray-900 rounded-3xl p-8 md:p-12 relative overflow-hidden shadow-xl text-white">
                   <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500 rounded-full blur-[100px] opacity-20 pointer-events-none" />
-                  <p className="relative z-10 text-xl font-medium leading-relaxed italic text-white/90">
-                    "{clean(report.message.replace(/^[-*#\s]+/, ''))}"
-                  </p>
+                  <p
+                    className="relative z-10 text-xl font-medium leading-relaxed italic text-white/90"
+                    dangerouslySetInnerHTML={{
+                      __html: `"${clean(report.message.replace(/^[-*#\s]+/, '')).replace(/<(?!\/?strong\b)[^>]*>/g, '')}"`,
+                    }}
+                  />
                 </div>
               </DocSection>
             )}
@@ -1380,7 +1426,15 @@ export default function InformeVocacional() {
         }
       };
 
-      const res = await saveObjetivoProfesional(payload);
+      let res = await saveObjetivoProfesional(payload);
+
+      // Si 409 (ya tiene otra profesión), borrar la anterior y reintentar
+      if (!res?.success && res?.message?.includes('Ya tienes')) {
+        const delRes = await deleteObjetivoProfesional();
+        if (delRes?.success) {
+          res = await saveObjetivoProfesional(payload);
+        }
+      }
       
       if (res?.success) {
         setSelectedCareerTitle(career.title);
@@ -1663,7 +1717,7 @@ export default function InformeVocacional() {
               </div>
               <div className="flex-1 text-center md:text-left">
                 <h3 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent mb-2">
-                  ¿Cómo ha sido tu experiencia?
+                  ¿Cómo ha sido tu experiencia?https://citaprevia.cordoba.es/
                 </h3>
                 <p className="text-gray-600 text-base md:text-lg leading-relaxed">
                   Ayuda a otros estudiantes dejando una reseña sobre tu proceso en VocAcción.

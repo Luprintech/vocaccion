@@ -31,8 +31,8 @@ class ObjetivoProfesionalController extends Controller
 
         // Si nos dieron datos de profesión sin id, crear registro en profesiones
         if (!$profesion_id && $profesion_data) {
-            // Preparar formación (puede venir como 'estudios' array o 'formacion' string)
-            $formacion = $profesion_data['estudios'] ?? $profesion_data['formacion'] ?? null;
+            // Preparar formación (puede venir como array o string)
+            $formacion = $profesion_data['formacion_recomendada'] ?? $profesion_data['formacion'] ?? $profesion_data['estudios'] ?? null;
             if (is_array($formacion)) {
                 $formacion = json_encode($formacion, JSON_UNESCAPED_UNICODE);
             }
@@ -43,13 +43,19 @@ class ObjetivoProfesionalController extends Controller
                 $salidas = implode(', ', $salidas);
             }
 
+            // Preparar formaciones_necesarias (puede venir como array)
+            $formacionesNecesarias = $profesion_data['formaciones_necesarias'] ?? $profesion_data['estudios'] ?? null;
+            if (is_array($formacionesNecesarias)) {
+                $formacionesNecesarias = json_encode($formacionesNecesarias, JSON_UNESCAPED_UNICODE);
+            }
+
             $profesion = Profesion::create([
                 'titulo' => $profesion_data['titulo'] ?? 'Profesión sin título',
                 'descripcion' => $profesion_data['descripcion'] ?? null,
-                'salidas' => $profesion_data['salidas'] ?? null,
-                'formacion_recomendada' => $profesion_data['formacion_recomendada'] ?? $profesion_data['formacion'] ?? null,
+                'salidas' => $salidas,
+                'formacion_recomendada' => $formacion,
                 'habilidades' => $profesion_data['habilidades'] ?? null,
-                'formaciones_necesarias' => $profesion_data['formaciones_necesarias'] ?? $profesion_data['estudios'] ?? null,
+                'formaciones_necesarias' => $formacionesNecesarias,
                 'imagen_url' => $profesion_data['imagenUrl'] ?? $profesion_data['imagen_url'] ?? null,
                 'pexels_prompt' => $profesion_data['pexels_prompt'] ?? null,
             ]);
