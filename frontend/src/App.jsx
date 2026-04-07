@@ -57,6 +57,7 @@ import LegalNotice from "./pages/legal/LegalNotice.jsx";
 //Test
 import TestVocacional from "./pages/test/TestVocacional.jsx";
 import TestIntro from "./pages/test/TestIntro.jsx";
+import TestAnalisis from "./pages/test/TestAnalisis.jsx";
 import InformeVocacional from "./pages/test/InformeVocacional.jsx";
 import MiProfesion from "./pages/mi-profesion/MiProfesion.jsx";
 import ItinerarioAcademico from "./pages/itinerario/ItinerarioAcademico";
@@ -144,9 +145,10 @@ function App() {
 
           {/* PÁGINA TEST - protegida */}
           {/* /testintro: Página introductoria que explica el propósito del test */}
-          {/* /test: Test vocacional real con las 20 preguntas */}
+          {/* /test: Test vocacional v2 por fases */}
           <Route path="/testintro" element={<ProtectedRoute><TestIntro /></ProtectedRoute>} />
           <Route path="/test" element={<ProtectedRoute><TestVocacional /></ProtectedRoute>} />
+          <Route path="/analisis-test" element={<ProtectedRoute><TestAnalisis /></ProtectedRoute>} />
           <Route path="/resultados" element={<ProtectedRoute><InformeVocacional /></ProtectedRoute>} />
           <Route path="/mi-profesion" element={<ProtectedRoute><MiProfesion /></ProtectedRoute>} />
           

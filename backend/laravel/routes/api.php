@@ -99,11 +99,17 @@ Route::middleware('auth:sanctum')->group(function () {
     // ==============================================
     Route::prefix('test')->group(function () {
         // SISTEMA PROGRESIVO NUEVO
-        Route::get('/estado', [TestController::class, 'estadoTest']); // Consulta estado sin side effects
-        Route::post('/iniciar', [TestController::class, 'iniciar']); // Inicia sesión y devuelve pregunta 1
-        Route::post('/siguiente-pregunta', [TestController::class, 'siguientePregunta']); // Genera siguiente pregunta
+        Route::get('/estado', [TestController::class, 'estadoTest']); // Consulta estado sin side effects (v1 + v2)
+        Route::post('/iniciar', [TestController::class, 'iniciar']); // Inicia sesión y devuelve pregunta 1 (v1 + v2)
+        
+        // V2: Curated bank flow
+        Route::post('/responder', [TestController::class, 'responder']); // V2: Store response and return next item
+        Route::post('/anterior', [TestController::class, 'anterior']); // V2: Go back to previous item
+        
+        // V1: Legacy adaptive flow
+        Route::post('/siguiente-pregunta', [TestController::class, 'siguientePregunta']); // V1: Genera siguiente pregunta
 
-        // Rutas de análisis y resultados
+        // Rutas de análisis y resultados (v1 + v2)
         Route::post('/analizar-respuestas', [TestController::class, 'analizarResultados']); // Analiza respuestas finales
         Route::post('/procesar-resultados', [TestController::class, 'procesarResultados']); // Procesa profesiones (si se mantiene)
         Route::post('/generar-imagen', [TestController::class, 'generarImagenPorProfesion']); // Genera imagen IA

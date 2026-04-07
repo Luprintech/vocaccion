@@ -13,6 +13,10 @@ namespace App\Domain\Hypothesis;
  * HypothesisDecider when choosing the next question strategy.
  *
  * All mutations return a NEW HypothesisState instance.
+ *
+ * @deprecated v2 uses VocationalResponse rows with deterministic scoring.
+ *             Kept for v1 session compatibility only.
+ *             See: app/Models/VocationalResponse.php for v2 response storage.
  */
 final class HypothesisState
 {

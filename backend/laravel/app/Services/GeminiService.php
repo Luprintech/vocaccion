@@ -52,6 +52,9 @@ class GeminiService
     /**
      * PROMPT 1: BATCH ANALYZER
      * Analiza un bloque de respuestas para actualizar scores RIASEC y Skills.
+     * 
+     * @deprecated v2 uses deterministic scoring via RiasecScoreCalculatorService.
+     *             Kept for v1 session compatibility only.
      */
     public function analyzeBatch(array $recentHistory): array
     {
@@ -96,6 +99,9 @@ EOT;
      * @param QuestionStrategy|null $strategy  Domain strategy decided by HypothesisDecider.
      *                                         When null, falls back to generic exploration prompt
      *                                         (legacy / warm-up / test-mock path — no change).
+     * 
+     * @deprecated v2 uses curated question_bank with no runtime question generation.
+     *             Kept for v1 session compatibility only.
      */
     public function generateQuestion(array $context, ?QuestionStrategy $strategy = null): array
     {
@@ -165,6 +171,112 @@ EOT;
         }
 
         return $response;
+    }
+
+    /**
+     * PROMPT 2C: ITEM PERSONALIZATION (V2)
+     * Select and order 34 items from the question bank based on user profile context.
+     * Called ONCE at test start. Falls back to default order on failure.
+     *
+     * @param array $bankItems  Array of items from question_bank: [{id, phase, dimension, text_es, age_group}, ...]
+     * @param array $profile    User profile context: {age_group, bio, hobbies, education, job}
+     * @return array Ordered array of 34 item IDs, or empty array on failure (caller should use default order)
+     */
+    public function personalizeItemSelection(array $bankItems, array $profile): array
+    {
+        // If profile is empty or minimal, skip personalization
+        $hasContext = !empty($profile['bio']) || !empty($profile['hobbies']) || 
+                      !empty($profile['education']) || !empty($profile['job']);
+        
+        if (!$hasContext) {
+            Log::info('[GeminiService] Skipping personalization — empty profile context');
+            return []; // Caller will use default order
+        }
+
+        $profileJson = json_encode($profile, JSON_UNESCAPED_UNICODE);
+        $bankJson = json_encode(array_map(function ($item) {
+            // Send only relevant fields to reduce token usage
+            return [
+                'id' => $item['id'],
+                'phase' => $item['phase'],
+                'dimension' => $item['dimension'],
+                'text' => $item['text_es'],
+            ];
+        }, $bankItems), JSON_UNESCAPED_UNICODE);
+
+        $systemInstruction = <<<EOT
+ACTÚA COMO: Psicólogo experto en evaluación vocacional con el modelo RIASEC (Holland).
+
+OBJETIVO: Personalizar la selección y orden de preguntas del test vocacional basándote en el perfil del usuario.
+
+CONTEXTO:
+- Recibirás un banco de preguntas (~102 items) organizadas en 3 fases: Likert (18), Checklist (10), Comparative (6).
+- Debes seleccionar EXACTAMENTE 34 items (18 Likert + 10 Checklist + 6 Comparative) y ordenarlas de forma que:
+  1. Las primeras preguntas sean las MÁS relevantes para el perfil del usuario (basándote en su bio, hobbies, formación, trabajo).
+  2. Se mantenga la proporción por fase (18/10/6).
+  3. Se cubran las 6 dimensiones RIASEC (R, I, A, S, E, C) de forma balanceada dentro de cada fase.
+  4. El orden de fases se respete: primero todos los Likert, luego Checklist, luego Comparative.
+
+REGLAS:
+1. Analiza el perfil del usuario para identificar áreas de interés probable.
+2. Prioriza preguntas que exploren esas áreas PRIMERO (aumenta engagement).
+3. Si mencionan educación técnica/ingeniería, prioriza items R (Realistic) e I (Investigative) al inicio de cada fase.
+4. Si mencionan hobbies creativos/artísticos, prioriza A (Artistic).
+5. Si mencionan trabajo con personas/social, prioriza S (Social).
+6. Si mencionan liderazgo/emprendimiento, prioriza E (Enterprising).
+7. Si mencionan organización/administración, prioriza C (Conventional).
+8. Mantén diversidad — NO agrupes todas las preguntas de una dimensión al principio.
+
+SALIDA ESPERADA (JSON STRICT):
+{
+  "selected_item_ids": [id1, id2, id3, ..., id34],
+  "reasoning": "Breve explicación de la estrategia de ordenamiento (max 100 palabras)"
+}
+
+IMPORTANTE: La salida DEBE tener exactamente 34 IDs, en el orden deseado, respetando las proporciones por fase.
+EOT;
+
+        $prompt = <<<EOT
+PERFIL DEL USUARIO:
+{$profileJson}
+
+BANCO DE PREGUNTAS DISPONIBLES:
+{$bankJson}
+
+Selecciona y ordena 34 items optimizando para el perfil del usuario.
+EOT;
+
+        try {
+            $response = $this->callGemini($prompt, true, $systemInstruction, 0.7, 2048);
+            
+            if (isset($response['selected_item_ids']) && is_array($response['selected_item_ids'])) {
+                $itemIds = $response['selected_item_ids'];
+                
+                // Validate count
+                if (count($itemIds) === 34) {
+                    Log::info('[GeminiService] Personalized item selection', [
+                        'reasoning' => $response['reasoning'] ?? 'No reasoning provided',
+                        'first_5_ids' => array_slice($itemIds, 0, 5),
+                    ]);
+                    return $itemIds;
+                } else {
+                    Log::warning('[GeminiService] Invalid item count from personalization', [
+                        'expected' => 34,
+                        'received' => count($itemIds),
+                    ]);
+                    return []; // Fallback to default order
+                }
+            }
+
+            Log::warning('[GeminiService] Invalid response format from personalization');
+            return []; // Fallback to default order
+
+        } catch (\Exception $e) {
+            Log::error('[GeminiService] Personalization failed', [
+                'error' => $e->getMessage(),
+            ]);
+            return []; // Fallback to default order
+        }
     }
 
     /**

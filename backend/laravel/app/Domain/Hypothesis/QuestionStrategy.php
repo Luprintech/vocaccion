@@ -18,6 +18,10 @@ namespace App\Domain\Hypothesis;
  *
  * V2 (planned):
  *   - DISCARD_GUARD: Boundary-test a dimension approaching discard threshold
+ *
+ * @deprecated v2 uses curated question_bank with predefined phases (Likert/Checklist/Comparative).
+ *             Kept for v1 session compatibility only.
+ *             See: app/Models/QuestionBank.php for v2 item types.
  */
 final class QuestionStrategy
 {

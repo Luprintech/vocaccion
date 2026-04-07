@@ -5,8 +5,10 @@ namespace App\Services;
 use App\Domain\Hypothesis\ConfidenceCalculator;
 use App\Domain\Hypothesis\HypothesisDecider;
 use App\Domain\Hypothesis\QuestionStrategy;
+use App\Models\QuestionBank;
 use App\Models\VocationalSession;
 use App\Models\VocationalProfile;
+use App\Models\Perfil;
 use Illuminate\Support\Facades\Log;
 
 class VocationalEngineService
@@ -349,5 +351,220 @@ class VocationalEngineService
             ],
             'strategy_type' => QuestionStrategy::EXPLORATION,
         ];
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // V2 API: CURATED BANK + PROFILE CONTEXT
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Start a new V2 session with curated question bank and profile-based personalization.
+     *
+     * @param int    $usuarioId     User ID
+     * @param string $ageGroup      One of: teen, young_adult, adult
+     * @return array {session_id: uuid, total_items: 34, current_index: 0, phase: 'likert', item: {...}}
+     */
+    public function startSessionV2(int $usuarioId, string $ageGroup): array
+    {
+        // 1. Load question bank for the age group
+        $bankItems = QuestionBank::forAgeGroup($ageGroup)
+            ->active()
+            ->ordered()
+            ->get();
+
+        if ($bankItems->count() < 34) {
+            throw new \Exception("Insufficient question bank items for age group: {$ageGroup}");
+        }
+
+        // 2. Get user profile context for personalization
+        $perfil = Perfil::with(['intereses', 'formaciones', 'experiencias'])->where('usuario_id', $usuarioId)->first();
+        $profileContext = $this->buildProfileContext($perfil, $ageGroup);
+
+        // 3. Personalize item selection via Gemini (fallback to default order)
+        $selectedItemIds = $this->personalizeItemOrder($bankItems, $profileContext);
+
+        // 4. Create session
+        $session = VocationalSession::create([
+            'usuario_id' => $usuarioId,
+            'version' => 2,
+            'age_group' => $ageGroup,
+            'selected_items' => $selectedItemIds,
+            'phase' => 'likert',
+            'current_index' => 0,
+            'is_completed' => false,
+        ]);
+
+        // 5. Get first item
+        $firstItem = $this->getItemAtIndex($session, 0);
+
+        return [
+            'session_id' => $session->id,
+            'version' => 2,
+            'total_items' => count($selectedItemIds),
+            'current_index' => 0,
+            'phase' => 'likert',
+            'item' => $firstItem,
+        ];
+    }
+
+    /**
+     * Get the next item for a V2 session.
+     *
+     * @param VocationalSession $session
+     * @return array|null {item: {...}, phase: 'likert', current_index: 5, phase_transition?: 'checklist'}
+     */
+    public function getNextItemV2(VocationalSession $session): ?array
+    {
+        if ($session->is_completed) {
+            return null;
+        }
+
+        $selectedItems = $session->selected_items;
+        $currentIndex = $session->current_index;
+
+        // Check if test is complete
+        if ($currentIndex >= count($selectedItems)) {
+            $session->update(['is_completed' => true]);
+            return null;
+        }
+
+        // Get current item
+        $item = $this->getItemAtIndex($session, $currentIndex);
+
+        // Detect phase transitions (18 likert → 10 checklist → 6 comparative)
+        $phaseTransition = null;
+        if ($currentIndex === 18) {
+            $phaseTransition = 'checklist';
+            $session->update(['phase' => 'checklist']);
+        } elseif ($currentIndex === 28) {
+            $phaseTransition = 'comparative';
+            $session->update(['phase' => 'comparative']);
+        }
+
+        return [
+            'item' => $item,
+            'phase' => $this->resolvePhaseForIndex($currentIndex),
+            'current_index' => $currentIndex,
+            'phase_transition' => $phaseTransition,
+            'test_complete' => false,
+        ];
+    }
+
+    public function getItemAtIndexV2(VocationalSession $session, int $index): array
+    {
+        return [
+            'item' => $this->getItemAtIndex($session, $index),
+            'phase' => $this->resolvePhaseForIndex($index),
+            'current_index' => $index,
+            'phase_transition' => null,
+            'test_complete' => false,
+        ];
+    }
+
+    /**
+     * Build profile context for personalization
+     */
+    protected function buildProfileContext(?Perfil $perfil, string $ageGroup): array
+    {
+        if (!$perfil) {
+            return ['age_group' => $ageGroup];
+        }
+
+        $hobbies = $perfil->relationLoaded('intereses')
+            ? $perfil->intereses->pluck('nombre')->filter()->values()->implode(', ')
+            : '';
+
+        $latestEducation = $perfil->relationLoaded('formaciones')
+            ? optional($perfil->formaciones->sortByDesc('fecha_inicio')->first())->titulo_obtenido
+                ?? optional($perfil->formaciones->sortByDesc('fecha_inicio')->first())->nivel
+            : '';
+
+        $latestJob = $perfil->relationLoaded('experiencias')
+            ? optional($perfil->experiencias->sortByDesc('fecha_inicio')->first())->puesto
+            : '';
+
+        return [
+            'age_group' => $ageGroup,
+            'bio' => $perfil->bio ?? '',
+            'hobbies' => $hobbies,
+            'education' => $latestEducation ?? '',
+            'job' => $latestJob ?? '',
+        ];
+    }
+
+    /**
+     * Personalize item order using Gemini, fallback to default order
+     */
+    protected function personalizeItemOrder($bankItems, array $profileContext): array
+    {
+        // Convert to array format for Gemini
+        $itemsArray = $bankItems->map(fn($item) => [
+            'id' => $item->id,
+            'phase' => $item->phase,
+            'dimension' => $item->dimension,
+            'text_es' => $item->text_es,
+            'age_group' => $item->age_group,
+        ])->toArray();
+
+        // Try personalization via Gemini
+        $personalizedIds = $this->gemini->personalizeItemSelection($itemsArray, $profileContext);
+
+        // Fallback to default order if personalization fails or returns empty
+        if (empty($personalizedIds)) {
+            Log::info('[VocationalEngineV2] Using default question order (personalization skipped)');
+            return $bankItems->pluck('id')->toArray();
+        }
+
+        Log::info('[VocationalEngineV2] Using personalized question order');
+        return $personalizedIds;
+    }
+
+    /**
+     * Get item at specific index from session's selected_items
+     */
+    protected function getItemAtIndex(VocationalSession $session, int $index): array
+    {
+        $selectedItems = $session->selected_items;
+        
+        if (!isset($selectedItems[$index])) {
+            throw new \Exception("Item index {$index} out of bounds");
+        }
+
+        $itemId = $selectedItems[$index];
+        $item = QuestionBank::find($itemId);
+
+        if (!$item) {
+            throw new \Exception("Question bank item {$itemId} not found");
+        }
+
+        $payload = [
+            'id' => $item->id,
+            'phase' => $item->phase,
+            'dimension' => $item->dimension,
+            'text_es' => $item->text_es,
+            'context_es' => $item->context_es,
+        ];
+
+        // Add phase-specific data
+        if ($item->phase === 'checklist') {
+            $payload['options'] = $item->getChecklistOptions();
+        } elseif ($item->phase === 'comparative') {
+            $payload['dimension_b'] = $item->dimension_b;
+        }
+
+        return $payload;
+    }
+
+    protected function resolvePhaseForIndex(int $index): string
+    {
+        if ($index < 18) {
+            return 'likert';
+        }
+
+        if ($index < 28) {
+            return 'checklist';
+        }
+
+        return 'comparative';
     }
 }
