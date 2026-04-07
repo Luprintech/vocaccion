@@ -8,22 +8,31 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use App\Models\VocationalSession;
 use App\Models\VocationalProfile;
+use App\Models\VocationalResponse;
+use App\Models\Perfil;
 use App\Models\IdempotencyKey;
 use App\Services\VocationalEngineService;
 use App\Services\GeminiService;
 use App\Services\CareerMatchingService;
+use App\Services\RiasecScoreCalculatorService;
 
 class TestController extends Controller
 {
     protected $engine;
     protected $gemini;
     protected $careerMatcher;
+    protected $scoreCalculator;
 
-    public function __construct(VocationalEngineService $engine, GeminiService $gemini, CareerMatchingService $careerMatcher)
-    {
+    public function __construct(
+        VocationalEngineService $engine,
+        GeminiService $gemini,
+        CareerMatchingService $careerMatcher,
+        RiasecScoreCalculatorService $scoreCalculator
+    ) {
         $this->engine = $engine;
         $this->gemini = $gemini;
         $this->careerMatcher = $careerMatcher;
+        $this->scoreCalculator = $scoreCalculator;
     }
 
     /**
@@ -32,7 +41,7 @@ class TestController extends Controller
      *
      * Respuestas posibles:
      *   { estado: 'completado' }  — hay una sesión completada
-     *   { estado: 'en_progreso', progress: N }  — hay sesión activa con preguntas respondidas
+     *   { estado: 'en_progreso', progress: N, version: 1|2, current_index: N }  — hay sesión activa
      *   { estado: 'nuevo' }  — no hay sesión o está a cero
      */
     public function estadoTest(Request $request)
@@ -45,7 +54,10 @@ class TestController extends Controller
             ->first();
 
         if ($completed) {
-            return response()->json(['estado' => 'completado']);
+            return response()->json([
+                'estado' => 'completado',
+                'version' => $completed->version ?? 1,
+            ]);
         }
 
         $active = VocationalSession::where('usuario_id', $user->id)
@@ -53,11 +65,28 @@ class TestController extends Controller
             ->latest()
             ->first();
 
-        if ($active && $active->question_count > 0) {
-            return response()->json([
-                'estado' => 'en_progreso',
-                'progress' => $active->question_count,
-            ]);
+        if ($active) {
+            $version = $active->version ?? 1;
+            
+            // V2: any active session should count as pending, even at index 0
+            if ($version === 2) {
+                return response()->json([
+                    'estado' => 'en_progreso',
+                    'version' => 2,
+                    'progress' => $active->current_index,
+                    'current_index' => $active->current_index,
+                    'phase' => $active->phase,
+                ]);
+            }
+            
+            // V1: check question_count
+            if ($version === 1 && $active->question_count > 0) {
+                return response()->json([
+                    'estado' => 'en_progreso',
+                    'version' => 1,
+                    'progress' => $active->question_count,
+                ]);
+            }
         }
 
         return response()->json(['estado' => 'nuevo']);
@@ -66,13 +95,16 @@ class TestController extends Controller
     /**
      * Inicia una nueva sesión de test o recupera una existente.
      * Endpoint: POST /api/test/iniciar
+     * 
+     * V2: Pass age_group in request body to start a curated bank session.
+     * V1: No age_group → legacy adaptive flow.
      */
     public function iniciar(Request $request)
     {
         try {
             $user = Auth::user();
 
-            // 1. Buscar sesión completada (para mostrar pantalla "Ya realizaste el test")
+            // 1. Buscar sesión completada
             $completed = VocationalSession::where('usuario_id', $user->id)
                 ->where('is_completed', true)
                 ->latest()
@@ -83,6 +115,7 @@ class TestController extends Controller
                     'success' => true,
                     'estado' => 'completado',
                     'session_id' => $completed->id,
+                    'version' => $completed->version ?? 1,
                 ]);
             }
 
@@ -92,22 +125,68 @@ class TestController extends Controller
                 ->latest()
                 ->first();
 
-            // 3. Crear nueva sesión si no existe
+            // 3. Determine flow: resume active v2, start new v2 with age_group, or fallback to v1
+            $ageGroup = $request->input('age_group');
+
+            // ── V2 RESUME: active curated-bank session ───────────────────
+            if ($session && $session->isV2()) {
+                $nextItem = $this->engine->getNextItemV2($session);
+
+                if (!$nextItem) {
+                    return response()->json([
+                        'success' => true,
+                        'estado' => 'completado',
+                        'session_id' => $session->id,
+                        'version' => 2,
+                    ]);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'estado' => $session->current_index > 0 ? 'en_progreso' : 'nuevo',
+                    'version' => 2,
+                    'session_id' => $session->id,
+                    'total_items' => count($session->selected_items ?? []),
+                    'current_index' => $session->current_index,
+                    'phase' => $session->phase,
+                    'item' => $nextItem['item'],
+                    'answer' => $this->formatExistingAnswer($session->id, $nextItem['item']['id']),
+                ]);
+            }
+
+            // ── V2 START: curated bank with explicit age_group ───────────
+            if ($ageGroup) {
+                $v2Session = $this->engine->startSessionV2($user->id, $ageGroup);
+                
+                return response()->json([
+                    'success' => true,
+                    'estado' => 'nuevo',
+                    'version' => 2,
+                    'session_id' => $v2Session['session_id'],
+                    'total_items' => $v2Session['total_items'],
+                    'current_index' => $v2Session['current_index'],
+                    'phase' => $v2Session['phase'],
+                    'item' => $v2Session['item'],
+                    'answer' => null,
+                ]);
+            }
+
+            // ── V1 FLOW: Legacy adaptive ───────────────────────────
             if (!$session) {
                 $session = new VocationalSession();
                 $session->usuario_id = $user->id;
+                $session->version = 1;
                 $session->save();
             }
 
-            // 4. Obtener la siguiente pregunta del motor
             $nextStep = $this->engine->getNextQuestion($session);
 
             if (empty($nextStep)) {
-                // El motor decidió parar (stopping conditions)
                 return response()->json([
                     'success' => true,
                     'estado' => 'completado',
                     'session_id' => $session->id,
+                    'version' => 1,
                     'current_phase' => 'done',
                 ]);
             }
@@ -115,15 +194,27 @@ class TestController extends Controller
             return response()->json([
                 'success' => true,
                 'estado' => $session->question_count > 0 ? 'en_progreso' : 'nuevo',
+                'version' => 1,
                 'session_id' => $session->id,
-                'current_index' => (int) $session->question_count, // Preguntas YA respondidas
-                'progress' => $session->question_count,        // Alias: compatibilidad con tests
+                'current_index' => (int) $session->question_count,
+                'progress' => $session->question_count,
                 'current_phase' => $session->current_phase,
                 'pregunta_actual' => $nextStep,
             ]);
 
         } catch (\Exception $e) {
-            Log::error("Error iniciando test: " . $e->getMessage());
+            if (str_contains($e->getMessage(), 'Insufficient question bank items')) {
+                Log::error("Error iniciando test: " . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'error' => 'El banco de preguntas del test aún no está cargado correctamente. Recarga los datos del sistema e inténtalo de nuevo.',
+                ], 422);
+            }
+
+            Log::error("Error iniciando test: " . $e->getMessage(), [
+                'exception' => $e,
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json(['success' => false, 'error' => 'Error de servidor'], 500);
         }
     }
@@ -259,6 +350,147 @@ class TestController extends Controller
     }
 
     /**
+     * V2: Store response and return next item from curated bank.
+     * Endpoint: POST /api/test/responder
+     */
+    public function responder(Request $request)
+    {
+        $request->validate([
+            'session_id' => 'required|uuid',
+            'item_id' => 'required|integer',
+            'value' => 'required|integer',
+            'response_payload' => 'nullable|array',
+            'response_time_ms' => 'nullable|integer',
+        ]);
+
+        try {
+            $session = VocationalSession::where('id', $request->session_id)->first();
+            
+            if (!$session) {
+                return response()->json(['success' => false, 'error' => 'Sesión no encontrada'], 404);
+            }
+
+            if (!$session->isV2()) {
+                return response()->json(['success' => false, 'error' => 'Sesión no es v2'], 400);
+            }
+
+            if ($session->is_completed) {
+                return response()->json(['success' => false, 'error' => 'Sesión ya completada'], 400);
+            }
+
+            // Store response (idempotent via unique constraint on session_id + item_id)
+            VocationalResponse::updateOrCreate(
+                [
+                    'session_id' => $session->id,
+                    'item_id' => $request->item_id,
+                ],
+                [
+                    'value' => $request->value,
+                    'response_payload' => $request->input('response_payload'),
+                    'response_time_ms' => $request->response_time_ms,
+                    'answered_at' => now(),
+                ]
+            );
+
+            // Advance index
+            $session->increment('current_index');
+            $session->refresh();
+
+            // Get next item
+            $nextData = $this->engine->getNextItemV2($session);
+
+            if (!$nextData) {
+                // Test complete
+                return response()->json([
+                    'success' => true,
+                    'test_complete' => true,
+                    'current_index' => $session->current_index,
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'current_index' => $session->current_index,
+                'phase' => $nextData['phase'],
+                'phase_transition' => $nextData['phase_transition'],
+                'item' => $nextData['item'],
+                'answer' => $this->formatExistingAnswer($session->id, $nextData['item']['id']),
+                'test_complete' => false,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error("Error en responder v2: " . $e->getMessage(), [
+                'exception' => $e,
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json(['success' => false, 'error' => 'Error procesando respuesta'], 500);
+        }
+    }
+
+    /**
+     * V2: go back to previous item and load saved answer.
+     * Endpoint: POST /api/test/anterior
+     */
+    public function anterior(Request $request)
+    {
+        $request->validate([
+            'session_id' => 'required|uuid',
+        ]);
+
+        try {
+            $session = VocationalSession::where('id', $request->session_id)->first();
+
+            if (!$session) {
+                return response()->json(['success' => false, 'error' => 'Sesión no encontrada'], 404);
+            }
+
+            if (!$session->isV2()) {
+                return response()->json(['success' => false, 'error' => 'Sesión no es v2'], 400);
+            }
+
+            $targetIndex = max(0, ((int) $session->current_index) - 1);
+            $session->update([
+                'current_index' => $targetIndex,
+                'phase' => $targetIndex < 18 ? 'likert' : ($targetIndex < 28 ? 'checklist' : 'comparative'),
+            ]);
+
+            $data = $this->engine->getItemAtIndexV2($session, $targetIndex);
+
+            return response()->json([
+                'success' => true,
+                'current_index' => $targetIndex,
+                'phase' => $data['phase'],
+                'item' => $data['item'],
+                'answer' => $this->formatExistingAnswer($session->id, $data['item']['id']),
+                'test_complete' => false,
+            ]);
+        } catch (\Exception $e) {
+            Log::error("Error en anterior v2: " . $e->getMessage(), [
+                'exception' => $e,
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json(['success' => false, 'error' => 'Error retrocediendo en el test'], 500);
+        }
+    }
+
+    protected function formatExistingAnswer(string $sessionId, int $itemId): mixed
+    {
+        $response = VocationalResponse::where('session_id', $sessionId)
+            ->where('item_id', $itemId)
+            ->first();
+
+        if (!$response) {
+            return null;
+        }
+
+        if (is_array($response->response_payload) && isset($response->response_payload['selected_options'])) {
+            return $response->response_payload['selected_options'];
+        }
+
+        return $response->value;
+    }
+
+    /**
      * Devuelve el informe final generado por Gemini.
      * Endpoint: GET /api/test/resultados
      */
@@ -349,34 +581,90 @@ class TestController extends Controller
                 Log::info('analizarResultados: perfil creado para usuario ' . $vocSession->usuario_id);
             }
 
-            // 1. Actualizar scores RIASEC con las respuestas acumuladas
-            $historyLog = $vocSession->history_log ?? [];
-            $analysis = $this->gemini->analyzeBatch($historyLog);
-
-            if (!empty($analysis['scores_delta'])) {
-                foreach ($analysis['scores_delta'] as $key => $delta) {
-                    if (in_array($key, $profile->getFillable())) {
-                        $profile->$key += $delta;
-                    }
+            // ── V2 PATH: Deterministic scoring ───────────────────────────────────
+            if ($vocSession->isV2()) {
+                Log::info('analizarResultados: Using V2 deterministic scoring');
+                
+                // Load all responses with item relations
+                $responses = VocationalResponse::where('session_id', $vocSession->id)
+                    ->with('item')
+                    ->get();
+                
+                if ($responses->isEmpty()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'No se encontraron respuestas para esta sesión',
+                    ], 400);
                 }
-                $profile->save();
-            }
+                
+                // Calculate RIASEC scores deterministically
+                $scores = $this->scoreCalculator->calculate($responses);
+                
+                // Update profile with calculated scores
+                $profile->update([
+                    'realistic_score' => $scores['R'],
+                    'investigative_score' => $scores['I'],
+                    'artistic_score' => $scores['A'],
+                    'social_score' => $scores['S'],
+                    'enterprising_score' => $scores['E'],
+                    'conventional_score' => $scores['C'],
+                ]);
+                
+                Log::info('analizarResultados: V2 scores calculated', ['scores' => $scores]);
+                
+                // Get profile data for matching and report
+                $profileData = $profile->toArray();
+                
+                // Get user's personal context for better report
+                $perfil = Perfil::with(['intereses', 'formaciones', 'experiencias'])->where('usuario_id', $vocSession->usuario_id)->first();
+                if ($perfil) {
+                    $hobbies = $perfil->intereses->pluck('nombre')->filter()->values()->implode(', ');
+                    $education = optional($perfil->formaciones->sortByDesc('fecha_inicio')->first())->titulo_obtenido
+                        ?? optional($perfil->formaciones->sortByDesc('fecha_inicio')->first())->nivel;
+                    $job = optional($perfil->experiencias->sortByDesc('fecha_inicio')->first())->puesto;
 
-            // Determinar si los scores RIASEC tienen datos útiles
-            $profileData = $profile->toArray();
-            $totalScore = ($profileData['realistic_score'] ?? 0)
-                + ($profileData['investigative_score'] ?? 0)
-                + ($profileData['artistic_score'] ?? 0)
-                + ($profileData['social_score'] ?? 0)
-                + ($profileData['enterprising_score'] ?? 0)
-                + ($profileData['conventional_score'] ?? 0);
+                    $profileData['_user_context'] = [
+                        'bio' => $perfil->bio,
+                        'hobbies' => $hobbies,
+                        'education' => $education,
+                        'job' => $job,
+                    ];
+                }
+                
+            } else {
+                // ── V1 PATH: AI-based scoring (legacy) ───────────────────────────
+                Log::info('analizarResultados: Using V1 AI-based scoring');
+                
+                // 1. Actualizar scores RIASEC con las respuestas acumuladas
+                $historyLog = $vocSession->history_log ?? [];
+                $analysis = $this->gemini->analyzeBatch($historyLog);
 
-            // Si los scores son todos 0, proporcionar el historial directamente a Gemini
-            // para que genere recomendaciones basadas en las respuestas reales.
-            if ($totalScore === 0 && !empty($historyLog)) {
-                Log::info('analizarResultados: scores a 0, usando historial directo para Gemini');
-                $profileData['_raw_history'] = $historyLog;
+                if (!empty($analysis['scores_delta'])) {
+                    foreach ($analysis['scores_delta'] as $key => $delta) {
+                        if (in_array($key, $profile->getFillable())) {
+                            $profile->$key += $delta;
+                        }
+                    }
+                    $profile->save();
+                }
+
+                // Determinar si los scores RIASEC tienen datos útiles
+                $profileData = $profile->toArray();
+                $totalScore = ($profileData['realistic_score'] ?? 0)
+                    + ($profileData['investigative_score'] ?? 0)
+                    + ($profileData['artistic_score'] ?? 0)
+                    + ($profileData['social_score'] ?? 0)
+                    + ($profileData['enterprising_score'] ?? 0)
+                    + ($profileData['conventional_score'] ?? 0);
+
+                // Si los scores son todos 0, proporcionar el historial directamente a Gemini
+                // para que genere recomendaciones basadas en las respuestas reales.
+                if ($totalScore === 0 && !empty($historyLog)) {
+                    Log::info('analizarResultados: scores a 0, usando historial directo para Gemini');
+                    $profileData['_raw_history'] = $historyLog;
+                }
             }
+            // ─────────────────────────────────────────────────────────────────────
 
             // 2. Obtener profesiones del catálogo via matching RIASEC
             $profesiones = $this->careerMatcher->match($profileData);
@@ -425,10 +713,15 @@ class TestController extends Controller
                 ->first();
 
             if (!$existingResult) {
+                // For v2: serialize responses instead of history_log
+                $answersData = $vocSession->isV2() 
+                    ? VocationalResponse::where('session_id', $vocSession->id)->get()->toArray()
+                    : ($historyLog ?? []);
+                    
                 DB::table('test_results')->insert([
                     'usuario_id' => $vocSession->usuario_id,
                     'test_session_id' => null,
-                    'answers' => json_encode($historyLog),
+                    'answers' => json_encode($answersData),
                     'result_text' => $reportMarkdown,
                     'profesiones' => json_encode($profesiones),
                     'saved_at' => now(),

@@ -90,6 +90,11 @@ class DatabaseSeeder extends Seeder
         // ==========================================
         $this->call(RecursosSeeder::class);
 
+        // ==========================================
+        // 8. BANCO DE PREGUNTAS RIASEC V2
+        // ==========================================
+        $this->call(QuestionBankSeeder::class);
+
 
 
         echo "\n Seeders completados!\n";

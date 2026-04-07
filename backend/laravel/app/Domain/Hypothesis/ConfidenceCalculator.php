@@ -14,6 +14,10 @@ namespace App\Domain\Hypothesis;
  *   - No consistency_factor (V2)
  *   - No temporal decay (V2)
  *   - Score weights are flat (V2 will differentiate question types)
+ *
+ * @deprecated v2 uses deterministic scoring via RiasecScoreCalculatorService.
+ *             Kept for v1 session compatibility only.
+ *             See: app/Services/RiasecScoreCalculatorService.php for v2 scoring.
  */
 final class ConfidenceCalculator
 {

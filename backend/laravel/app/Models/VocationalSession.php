@@ -6,6 +6,7 @@ use App\Domain\Hypothesis\HypothesisState;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -27,6 +28,12 @@ class VocationalSession extends Model
         'is_completed',
         'hypothesis_state',  // RIASEC confidence state for the adaptive engine
         'decision_log',      // Audit trail of HypothesisDecider strategy choices
+        // V2 fields (curated bank + profile context)
+        'version',
+        'age_group',
+        'selected_items',
+        'phase',
+        'current_index',
     ];
 
     protected $casts = [
@@ -34,6 +41,10 @@ class VocationalSession extends Model
         'is_completed' => 'boolean',
         'hypothesis_state' => 'array',  // Stored as JSON, hydrated to array by Eloquent
         'decision_log' => 'array',
+        // V2 casts
+        'version' => 'integer',
+        'selected_items' => 'array',
+        'current_index' => 'integer',
     ];
 
     /**
@@ -72,6 +83,11 @@ class VocationalSession extends Model
             if (empty($model->decision_log)) {
                 $model->decision_log = [];
             }
+
+            // 4. Set version to 2 by default for new sessions (v1 defaults to 1 via migration)
+            if (empty($model->version)) {
+                $model->version = 2;
+            }
         });
     }
 
@@ -81,6 +97,14 @@ class VocationalSession extends Model
     public function usuario(): BelongsTo
     {
         return $this->belongsTo(Usuario::class, 'usuario_id');
+    }
+
+    /**
+     * V2 responses for this session
+     */
+    public function vocationalResponses(): HasMany
+    {
+        return $this->hasMany(VocationalResponse::class, 'session_id', 'id');
     }
 
     /**
@@ -120,5 +144,21 @@ class VocationalSession extends Model
         }
 
         return HypothesisState::fromArray($raw);
+    }
+
+    /**
+     * Check if this session is using the v2 curated bank flow
+     */
+    public function isV2(): bool
+    {
+        return $this->version === 2;
+    }
+
+    /**
+     * Check if this session is using the legacy v1 adaptive flow
+     */
+    public function isV1(): bool
+    {
+        return $this->version === 1 || empty($this->version);
     }
 }

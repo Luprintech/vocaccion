@@ -41,12 +41,14 @@ class VocationalTestFlowTest extends TestCase
         $sessionId = $response->json('session_id');
 
         $this->assertNotNull($sessionId);
+        $this->assertEquals(1, $response->json('version'));
         $this->assertEquals('warm_up', $response->json('current_phase'));
         $this->assertEquals(0, $response->json('progress'));
 
         // 2. RETRIEVE SESSION FROM DB
         $session = VocationalSession::find($sessionId);
         $this->assertNotNull($session);
+        $this->assertTrue($session->isV1());
 
         // MOCK SETUP
         // Setup GMock for generateQuestion

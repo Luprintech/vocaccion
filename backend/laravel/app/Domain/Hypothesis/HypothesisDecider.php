@@ -16,6 +16,10 @@ namespace App\Domain\Hypothesis;
  *
  * All decisions are deterministic and unit-testable without any mocks.
  * This class has zero dependencies on Laravel, Eloquent, or HTTP.
+ *
+ * @deprecated v2 uses curated question_bank with RiasecScoreCalculatorService.
+ *             Kept for v1 session compatibility only.
+ *             See: app/Services/RiasecScoreCalculatorService.php for v2 scoring.
  */
 final class HypothesisDecider
 {

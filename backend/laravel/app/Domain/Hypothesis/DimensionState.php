@@ -15,6 +15,10 @@ namespace App\Domain\Hypothesis;
  *
  * Immutable by convention: all mutations return a NEW instance.
  * This makes state transitions auditable and prevents accidental mutation.
+ *
+ * @deprecated v2 uses VocationalResponse rows with deterministic scoring.
+ *             Kept for v1 session compatibility only.
+ *             See: app/Services/RiasecScoreCalculatorService.php for v2 scoring.
  */
 final class DimensionState
 {

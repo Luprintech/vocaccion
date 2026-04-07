@@ -116,17 +116,32 @@ export async function deleteProfileImage() {
 // TEST VOCACIONAL (SISTEMA PROGRESIVO)
 // ======================================================
 
-// 🔹 Iniciar test (reinicia sesión y obtiene pregunta 1)
-export async function startTest() {
-	const response = await fetch(`${API_URL}/test/iniciar`, {
-		method: "POST",
+// 🔹 Obtener estado del test (sin side effects)
+export async function getTestEstado() {
+	const response = await fetch(`${API_URL}/test/estado`, {
+		method: "GET",
 		headers: getAuthHeaders(),
 		credentials: "include",
 	});
 	return response.json();
 }
 
-// 🔹 Obtener siguiente pregunta
+// 🔹 Iniciar test (v1 y v2 compatible)
+// Si se pasa age_group, inicia sesión v2 (curated bank)
+// Si no se pasa, inicia sesión v1 (adaptive legacy)
+export async function startTest(ageGroup = null) {
+	const body = ageGroup ? { age_group: ageGroup } : {};
+	
+	const response = await fetch(`${API_URL}/test/iniciar`, {
+		method: "POST",
+		headers: getAuthHeaders(),
+		credentials: "include",
+		body: JSON.stringify(body),
+	});
+	return response.json();
+}
+
+// 🔹 Obtener siguiente pregunta (v1 legacy)
 export async function getNextQuestion(payload) {
 	const response = await fetch(`${API_URL}/test/siguiente-pregunta`, {
 		method: "POST",
@@ -137,13 +152,37 @@ export async function getNextQuestion(payload) {
 	return response.json();
 }
 
-// 🔹 Analizar respuestas finales
-export async function analyzeTestResults(respuestas) {
+// 🔹 Responder pregunta (v2 curated bank)
+// payload: { session_id, item_id, value, response_time_ms? }
+export async function responderPregunta(payload) {
+	const response = await fetch(`${API_URL}/test/responder`, {
+		method: "POST",
+		headers: getAuthHeaders(),
+		credentials: "include",
+		body: JSON.stringify(payload),
+	});
+	return response.json();
+}
+
+export async function anteriorPregunta(payload) {
+	const response = await fetch(`${API_URL}/test/anterior`, {
+		method: "POST",
+		headers: getAuthHeaders(),
+		credentials: "include",
+		body: JSON.stringify(payload),
+	});
+	return response.json();
+}
+
+// 🔹 Analizar respuestas finales (v1 y v2 compatible)
+// Para v1: pasa { respuestas: [...] }
+// Para v2: pasa { session_id: "uuid" }
+export async function analyzeTestResults(payload) {
 	const response = await fetch(`${API_URL}/test/analizar-respuestas`, {
 		method: "POST",
 		headers: getAuthHeaders(),
 		credentials: "include",
-		body: JSON.stringify({ respuestas }),
+		body: JSON.stringify(payload),
 	});
 	return response.json();
 }
