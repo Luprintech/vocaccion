@@ -1324,6 +1324,8 @@ export default function InformeVocacional() {
   const [cargando, setCargando] = useState(true);
   const [frase, setFrase] = useState('');
   const [isFallback, setIsFallback] = useState(false);
+  // Structured RIASEC scores from API — eliminates markdown regex parsing fragility (REQ-1.2)
+  const [apiRiasecScores, setApiRiasecScores] = useState(null);
 
   // Career selection state
   const [selectedCareerTitle, setSelectedCareerTitle] = useState(null);
@@ -1332,7 +1334,38 @@ export default function InformeVocacional() {
   const vieneDelTest = useRef(!!location.state?.resultadoTexto);
 
   // Parse markdown into structured report
-  const report = useMemo(() => parseMarkdown(informeMarkdown), [informeMarkdown]);
+  const report = useMemo(() => {
+    const parsed = parseMarkdown(informeMarkdown);
+
+    // Priority 1: Use structured riasec_scores from API (avoids fragile markdown regex)
+    // Priority 2: Fall back to parseMarkdown regex extraction (older cached results)
+    if (parsed && apiRiasecScores) {
+      const RIASEC_KEYS = ['R', 'I', 'A', 'S', 'E', 'C'];
+      const total = RIASEC_KEYS.reduce((sum, k) => sum + (apiRiasecScores[k] ?? 0), 0);
+      const normalizer = total > 0 ? total : 1;
+
+      const structuredScores = RIASEC_KEYS.map(dim => ({
+        dim,
+        label: RIASEC_LABELS[dim],
+        value: apiRiasecScores[dim] ?? 0,
+        pct: +((( apiRiasecScores[dim] ?? 0) / normalizer) * 100).toFixed(1),
+      }));
+
+      // Derive RIASEC code from highest scoring dimensions
+      const sorted = [...structuredScores].sort((a, b) => b.pct - a.pct).filter(s => s.pct > 0);
+      const selected = [sorted[0]];
+      for (let i = 1; i < sorted.length && i < 3; i++) {
+        const gap = sorted[i - 1].pct - sorted[i].pct;
+        if (sorted[i].pct < 12 || gap > 12) break;
+        selected.push(sorted[i]);
+      }
+
+      parsed.riasecScores = structuredScores;
+      parsed.riasecCode = selected.map(s => s.dim).join('');
+    }
+
+    return parsed;
+  }, [informeMarkdown, apiRiasecScores]);
 
   // ── Load results ──────────────────────────────────────────
   useEffect(() => {
@@ -1342,6 +1375,10 @@ export default function InformeVocacional() {
         const stateResultado = location.state?.resultadoTexto;
         if (stateResultado) {
           setInformeMarkdown(stateResultado);
+          // Store structured RIASEC scores if provided (eliminates markdown regex dependency)
+          if (location.state?.riasec_scores) {
+            setApiRiasecScores(location.state.riasec_scores);
+          }
           setFrase('Tu elemento está donde se cruzan tus pasiones con tus talentos. Basado en tus respuestas, podría encontrarse en...');
           setCargando(false);
           return;
@@ -1627,7 +1664,7 @@ export default function InformeVocacional() {
                 <div className="mt-2 text-sm text-yellow-700">
                   <p>
                     Este es un análisis vocacional preliminar del sistema. Para obtener recomendaciones
-                    personalizadas con inteligencia artificial, inténtalo de nuevo en 10-15 minutos o
+                    personalizadas completas, inténtalo de nuevo en 10-15 minutos o
                     <a href="/contacto" className="font-semibold underline ml-1">agenda una sesión con un orientador</a>.
                   </p>
                 </div>
@@ -1717,7 +1754,7 @@ export default function InformeVocacional() {
               </div>
               <div className="flex-1 text-center md:text-left">
                 <h3 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-purple-600 to-green-600 bg-clip-text text-transparent mb-2">
-                  ¿Cómo ha sido tu experiencia?https://citaprevia.cordoba.es/
+                  ¿Cómo ha sido tu experiencia?
                 </h3>
                 <p className="text-gray-600 text-base md:text-lg leading-relaxed">
                   Ayuda a otros estudiantes dejando una reseña sobre tu proceso en VocAcción.

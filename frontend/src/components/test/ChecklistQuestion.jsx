@@ -30,13 +30,13 @@ const ChecklistQuestion = ({ item, selectedOptions = [], onChange, disabled = fa
   const options = item.options || [];
 
   return (
-    <div className="checklist-question-container">
+    <div className="checklist-question-container w-full h-full flex flex-col">
       {/* Question text */}
-      <div className="mb-3">
-        <h3 className="text-base md:text-lg font-semibold text-gray-800 mb-2 leading-snug">
+      <div className="mb-4">
+        <h3 className="text-lg md:text-xl font-semibold text-gray-800 mb-2 leading-snug">
           {item.text_es}
         </h3>
-        {item.context_es && (
+        {item.context_es && !item.context_es.includes('En esta versión v2 se registra la afinidad general del item') && (
           <p className="text-xs md:text-sm text-gray-500 italic mb-1 leading-snug line-clamp-2">
             {item.context_es}
           </p>
@@ -47,7 +47,7 @@ const ChecklistQuestion = ({ item, selectedOptions = [], onChange, disabled = fa
       </div>
 
       {/* Checklist options */}
-      <div className="space-y-1.5">
+      <div className="space-y-2 flex-1">
         {options.map((option, index) => {
           const isSelected = selected.includes(index);
           
@@ -57,10 +57,10 @@ const ChecklistQuestion = ({ item, selectedOptions = [], onChange, disabled = fa
               onClick={() => handleToggle(index)}
               disabled={disabled}
               className={`
-                w-full px-3 py-2.5 rounded-xl border-2 transition-all duration-200
+                w-full h-[72px] px-3 rounded-xl border-2 transition-all duration-200
                 ${isSelected
-                  ? 'border-green-500 bg-green-50 shadow-md'
-                  : 'border-gray-300 bg-white hover:border-green-300 hover:bg-green-50'
+                  ? 'border-green-600 bg-green-50 shadow-md -translate-y-0.5'
+                  : 'border-gray-300 bg-white hover:border-green-300 hover:bg-green-50 hover:scale-[1.01]'
                 }
                 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 flex items-center justify-between text-left
@@ -88,7 +88,7 @@ const ChecklistQuestion = ({ item, selectedOptions = [], onChange, disabled = fa
       </div>
 
       {/* Selection counter */}
-      <div className="mt-3 pt-2 border-t border-gray-100">
+      <div className="mt-4 pt-2 border-t border-gray-100">
         <div className="flex items-center justify-between">
           <span className="text-xs md:text-sm text-gray-600">
             {selected.length === 0 && 'No has seleccionado ninguna opción'}
@@ -110,7 +110,7 @@ const ChecklistQuestion = ({ item, selectedOptions = [], onChange, disabled = fa
         </div>
         {selected.length === 0 && (
           <p className="text-[11px] text-gray-500 mt-1.5">
-            Puedes dejar sin seleccionar si ninguna opción aplica
+            Selecciona al menos una opción para continuar.
           </p>
         )}
       </div>

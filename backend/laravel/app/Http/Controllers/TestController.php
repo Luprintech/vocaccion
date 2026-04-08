@@ -11,10 +11,13 @@ use App\Models\VocationalProfile;
 use App\Models\VocationalResponse;
 use App\Models\Perfil;
 use App\Models\IdempotencyKey;
+use App\Helpers\PersonalizationHelper;
 use App\Services\VocationalEngineService;
 use App\Services\GeminiService;
 use App\Services\CareerMatchingService;
 use App\Services\RiasecScoreCalculatorService;
+use App\Services\RiasecTestConfig;
+use App\Services\DeterministicReportService;
 
 class TestController extends Controller
 {
@@ -22,17 +25,20 @@ class TestController extends Controller
     protected $gemini;
     protected $careerMatcher;
     protected $scoreCalculator;
+    protected $deterministicReport;
 
     public function __construct(
         VocationalEngineService $engine,
         GeminiService $gemini,
         CareerMatchingService $careerMatcher,
-        RiasecScoreCalculatorService $scoreCalculator
+        RiasecScoreCalculatorService $scoreCalculator,
+        DeterministicReportService $deterministicReport
     ) {
         $this->engine = $engine;
         $this->gemini = $gemini;
         $this->careerMatcher = $careerMatcher;
         $this->scoreCalculator = $scoreCalculator;
+        $this->deterministicReport = $deterministicReport;
     }
 
     /**
@@ -396,6 +402,27 @@ class TestController extends Controller
             $session->increment('current_index');
             $session->refresh();
 
+            // ── Early stopping: evaluate convergence at phase boundaries ─────
+            // Evaluated when current_index lands exactly on the start of
+            // competencies (30) or occupations (48). If the profile already
+            // converges we jump directly to the comparative phase (index 66).
+            $earlyStopped = false;
+            $comparativeStart = RiasecTestConfig::PHASE_TRANSITIONS['comparative']; // 66
+            if ($session->current_index < $comparativeStart) {
+                $partialResponses = VocationalResponse::where('session_id', $session->id)
+                    ->with('item')
+                    ->get();
+                $partialScores = $this->scoreCalculator->calculate($partialResponses);
+
+                if (RiasecTestConfig::evaluateEarlyStopping($partialScores, $session->current_index)) {
+                    $session->update(['current_index' => $comparativeStart]);
+                    $session->refresh();
+                    $earlyStopped = true;
+                    Log::info("Early stopping triggered at index {$session->current_index} for session {$session->id}");
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────
+
             // Get next item
             $nextData = $this->engine->getNextItemV2($session);
 
@@ -416,6 +443,7 @@ class TestController extends Controller
                 'item' => $nextData['item'],
                 'answer' => $this->formatExistingAnswer($session->id, $nextData['item']['id']),
                 'test_complete' => false,
+                'early_stopped' => $earlyStopped,
             ]);
 
         } catch (\Exception $e) {
@@ -669,8 +697,41 @@ class TestController extends Controller
             // 2. Obtener profesiones del catálogo via matching RIASEC
             $profesiones = $this->careerMatcher->match($profileData);
 
-            // 3. Generar informe en Markdown (con las profesiones pre-seleccionadas)
-            $reportMarkdown = $this->gemini->generateReport($profileData, $profesiones);
+            // 3. Resolve user name for personalized report narrative
+            $userName = '';
+            if (!isset($perfil)) {
+                // Re-load perfil if not already resolved in V1 path
+                $perfil = Perfil::where('usuario_id', $vocSession->usuario_id)->first();
+            }
+            if ($perfil) {
+                $userObj = \App\Models\Usuario::find($vocSession->usuario_id);
+                $ctx = PersonalizationHelper::buildPersonalizationContext($userObj, $perfil);
+                $userName = $ctx['nombre'] ?? '';
+            } else {
+                $userObj = \App\Models\Usuario::find($vocSession->usuario_id);
+                if ($userObj) {
+                    $userName = trim(explode(' ', $userObj->name ?? '')[0]);
+                }
+            }
+
+            // 4. Informe híbrido: base determinística + narrativa IA opcional (menos tokens, más robustez)
+            $reportSource = 'deterministic';
+            $riasecCode = $this->deriveRiasecCodeFromProfileData($profileData);
+            $aiNarrative = [];
+
+            try {
+                $aiNarrative = $this->gemini->generateNarrativeSections($profileData, $riasecCode, $userName);
+                if (!empty($aiNarrative)) {
+                    $reportSource = 'hybrid';
+                }
+            } catch (\Throwable $narrativeEx) {
+                Log::warning('analizarResultados: narrativa IA no disponible, usando informe determinístico', [
+                    'session_id' => $vocSession->id,
+                    'error' => $narrativeEx->getMessage(),
+                ]);
+            }
+
+            $reportMarkdown = $this->deterministicReport->build($profileData, $profesiones, $userName, is_array($aiNarrative) ? $aiNarrative : []);
 
             // 3.b. Generar y asignar imágenes a cada profesión antes de guardar
             if (!empty($profesiones) && is_array($profesiones)) {
@@ -733,10 +794,22 @@ class TestController extends Controller
                 Log::info('analizarResultados: resultado ya existía, omitiendo inserción duplicada');
             }
 
+            // Build structured RIASEC scores for frontend (eliminates regex parsing fragility)
+            $riasecScores = [
+                'R' => $profile->realistic_score ?? 0,
+                'I' => $profile->investigative_score ?? 0,
+                'A' => $profile->artistic_score ?? 0,
+                'S' => $profile->social_score ?? 0,
+                'E' => $profile->enterprising_score ?? 0,
+                'C' => $profile->conventional_score ?? 0,
+            ];
+
             return response()->json([
                 'success' => true,
                 'resultados' => ['profesiones' => $profesiones],
                 'report_markdown' => $reportMarkdown,
+                'riasec_scores' => $riasecScores,
+                'report_source' => $reportSource,
             ]);
 
         } catch (\Exception $e) {
@@ -768,6 +841,240 @@ class TestController extends Controller
             'profile' => $profile,
             'session_id' => $session->id,
         ]);
+    }
+
+    /**
+     * Validación mínima de calidad del informe generado por IA.
+     * Evita persistir respuestas vacías como "Error de conexión.".
+     */
+    protected function isValidReportMarkdown(?string $markdown): bool
+    {
+        if (!$markdown) {
+            return false;
+        }
+
+        $trimmed = trim($markdown);
+        if ($trimmed === '' || $trimmed === 'Error de conexión.' || $trimmed === 'Error al generar contenido.' || $trimmed === 'Respuesta truncada.') {
+            return false;
+        }
+
+        // Longitud mínima para considerar que hay contenido real
+        if (mb_strlen($trimmed) < 1200) {
+            return false;
+        }
+
+        // Estructura esperada del informe
+        $requiredSections = [
+            '## 1. Análisis de tu Código Holland',
+            '## 2. Retrato Psicológico-Vocacional',
+            '## 3. Tus Superpoderes Profesionales',
+            '## 4. Tus Caminos Profesionales Recomendados',
+            '## 5. Áreas de Crecimiento',
+            '## 6. Mensaje Final de tu Mentor',
+        ];
+
+        $found = 0;
+        foreach ($requiredSections as $section) {
+            if (str_contains($trimmed, $section)) {
+                $found++;
+            }
+        }
+
+        // Requerimos al menos 4 de las 6 secciones para no descartar respuestas válidas
+        return $found >= 4;
+    }
+
+    protected function deriveRiasecCodeFromProfileData(array $profileData): string
+    {
+        $scores = [
+            'R' => (float) ($profileData['realistic_score'] ?? 0),
+            'I' => (float) ($profileData['investigative_score'] ?? 0),
+            'A' => (float) ($profileData['artistic_score'] ?? 0),
+            'S' => (float) ($profileData['social_score'] ?? 0),
+            'E' => (float) ($profileData['enterprising_score'] ?? 0),
+            'C' => (float) ($profileData['conventional_score'] ?? 0),
+        ];
+
+        arsort($scores);
+        return implode('', array_slice(array_keys($scores), 0, 3));
+    }
+
+    /**
+     * Preloads Pexels images for all occupation-phase items of a V2 session.
+     * Images are cached by normalized occupation label (long-lived) so Pexels is called only once.
+     *
+     * Endpoint: GET /api/test/occupation-images/{sessionId}
+     *
+     * Response: { success: true, images: { item_id: image_url, ... } }
+     */
+    public function occupationImages(string $sessionId)
+    {
+        $session = VocationalSession::where('id', $sessionId)->first();
+
+        if (!$session || !$session->isV2()) {
+            return response()->json(['success' => false, 'error' => 'Sesión no encontrada'], 404);
+        }
+
+        $selectedIds    = $session->selected_items ?? [];
+        $occStart       = \App\Services\RiasecTestConfig::PHASE_TRANSITIONS['occupations']; // 48
+        $occCount       = \App\Services\RiasecTestConfig::ITEMS_PER_PHASE['occupations'];   // 18
+        $occupationIds  = array_slice($selectedIds, $occStart, $occCount);
+
+        if (empty($occupationIds)) {
+            return response()->json(['success' => true, 'images' => []]);
+        }
+
+        $items  = \App\Models\QuestionBank::whereIn('id', $occupationIds)->get()->keyBy('id');
+        $pexKey = config('services.pexels.key', '');
+        $result = [];
+
+        $pending = [];
+
+        foreach ($occupationIds as $itemId) {
+            $item = $items[$itemId] ?? null;
+            if (!$item) {
+                $result[$itemId] = null;
+                continue;
+            }
+
+            $normalizedOccupation = $this->normalizeOccupationLabel((string) $item->text_es);
+            $cacheKey = 'occ_img_v3_' . md5($normalizedOccupation);
+            $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, '__MISS__');
+
+            if ($cached !== '__MISS__') {
+                $result[$itemId] = $cached === '__NULL__' ? null : $cached;
+                continue;
+            }
+
+            $pending[$itemId] = [
+                'cache_key' => $cacheKey,
+                'query' => $this->occupationSearchQuery((string) $item->text_es),
+            ];
+        }
+
+        if (!empty($pending)) {
+            if (!$pexKey) {
+                foreach ($pending as $itemId => $meta) {
+                    \Illuminate\Support\Facades\Cache::forever($meta['cache_key'], '__NULL__');
+                    $result[$itemId] = null;
+                }
+            } else {
+                $responses = \Illuminate\Support\Facades\Http::pool(function ($pool) use ($pending, $pexKey) {
+                    $requests = [];
+                    foreach ($pending as $itemId => $meta) {
+                        $requests[$itemId] = $pool
+                            ->withHeaders(['Authorization' => $pexKey])
+                            ->timeout(10)
+                            ->get('https://api.pexels.com/v1/search', [
+                                'query' => $meta['query'],
+                                'per_page' => 5,
+                                'orientation' => 'landscape',
+                            ]);
+                    }
+                    return $requests;
+                });
+
+                foreach ($pending as $itemId => $meta) {
+                    $res = $responses[$itemId] ?? null;
+                    $url = null;
+                    if ($res && $res->successful()) {
+                        $photos = $res->json('photos');
+                        if (!empty($photos)) {
+                            $url = $photos[0]['src']['large2x'] ?? $photos[0]['src']['large'] ?? null;
+                        }
+                    }
+
+                    \Illuminate\Support\Facades\Cache::forever($meta['cache_key'], $url ?? '__NULL__');
+                    $result[$itemId] = $url;
+                }
+            }
+        }
+
+        return response()->json(['success' => true, 'images' => $result]);
+    }
+
+    /**
+     * Returns a stable normalized occupation label for cache identity.
+     */
+    protected function normalizeOccupationLabel(string $occupation): string
+    {
+        $normalized = mb_strtolower(trim($occupation), 'UTF-8');
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        return $normalized;
+    }
+
+    /**
+     * Builds a reliable English Pexels query for seeded occupation labels.
+     */
+    protected function occupationSearchQuery(string $occupation): string
+    {
+        $normalized = $this->normalizeOccupationLabel($occupation);
+
+        $exactMap = [
+            'electricista o técnico de instalaciones' => 'electrician technician working',
+            'mecánico o técnico de mantenimiento' => 'mechanic maintenance technician workshop',
+            'agricultor o jardinero profesional' => 'farmer professional gardener working outdoors',
+            'investigador científico' => 'scientific researcher laboratory',
+            'programador o analista de datos' => 'software developer data analyst computer',
+            'médico o biólogo' => 'doctor biologist laboratory',
+            'diseñador gráfico o de videojuegos' => 'graphic designer video game designer workspace',
+            'músico, actor o director de cine' => 'musician actor film director on set',
+            'escritor, periodista o creador de contenido' => 'writer journalist content creator office',
+            'profesor o educador' => 'teacher educator classroom',
+            'enfermero o trabajador social' => 'nurse social worker helping people',
+            'psicólogo o terapeuta' => 'psychologist therapist consultation',
+            'empresario o fundador de startups' => 'entrepreneur startup founder business team',
+            'director de marketing o ventas' => 'marketing sales manager business meeting',
+            'abogado o político' => 'lawyer politician professional portrait office',
+            'contable o auditor' => 'accountant auditor financial analysis office',
+            'administrativo o secretario de dirección' => 'administrative assistant executive secretary office',
+            'bibliotecario o archivista' => 'librarian archivist library documents',
+
+            'técnico de redes, sistemas o ciberseguridad' => 'network systems cybersecurity technician server room',
+            'ingeniero de producción o logística' => 'production logistics engineer industrial warehouse',
+            'técnico de sonido, iluminación o audiovisuales' => 'sound lighting audiovisual technician event',
+            'analista de datos o científico de datos' => 'data analyst data scientist charts laptop',
+            'investigador en tecnología o i+d' => 'technology research and development scientist',
+            'consultor especializado o perito' => 'specialized consultant expert professional',
+            'director creativo o diseñador ux/ui' => 'creative director ux ui designer office',
+            'fotógrafo, cineasta o productor audiovisual' => 'photographer filmmaker audiovisual producer camera',
+            'redactor, copywriter o storyteller' => 'copywriter writer storytelling content creation',
+            'orientador laboral o coach' => 'career counselor coach session',
+            'educador social o mediador comunitario' => 'social educator community mediator support',
+            'terapeuta ocupacional o de rehabilitación' => 'occupational therapist rehabilitation therapy',
+            'ceo, fundador o director de operaciones' => 'ceo startup founder operations director',
+            'business developer o key account manager' => 'business development key account manager meeting',
+            'project manager o scrum master' => 'project manager scrum master agile team',
+            'controller financiero o analista contable' => 'financial controller accounting analyst office',
+            'especialista en compliance o calidad' => 'compliance quality specialist audit office',
+            'administrador de bases de datos o documentalista' => 'database administrator document specialist computer',
+
+            'director técnico o jefe de obra' => 'technical director construction manager site',
+            'responsable de mantenimiento o producción' => 'maintenance production manager industrial plant',
+            'técnico especialista o artesano' => 'specialist technician artisan workshop',
+            'director de i+d o responsable de innovación' => 'research and innovation director laboratory',
+            'consultor estratégico basado en datos' => 'data driven strategy consultant business',
+            'investigador sénior o docente universitario' => 'senior researcher university professor',
+            'director de arte o diseño' => 'art design director creative studio',
+            'arquitecto, urbanista o diseñador de interiores' => 'architect urban planner interior designer',
+            'editor, guionista o productor ejecutivo' => 'editor screenwriter executive producer film',
+            'director de formación o desarrollo de personas' => 'training people development director corporate',
+            'mediador, trabajador social o terapeuta' => 'mediator social worker therapist counseling',
+            'director de ong o responsable de rsc' => 'nonprofit ngo csr director social impact',
+            'director general o consejero delegado' => 'chief executive officer corporate leadership',
+            'inversor, gestor de fondos o emprendedor serial' => 'investor fund manager entrepreneur business',
+            'director comercial o de desarrollo de negocio' => 'commercial director business development executive',
+            'director financiero (cfo) o controller' => 'chief financial officer cfo controller office',
+            'responsable de calidad o compliance officer' => 'quality manager compliance officer professional',
+            'director de administración o de operaciones' => 'administration operations director corporate office',
+        ];
+
+        if (isset($exactMap[$normalized])) {
+            return $exactMap[$normalized];
+        }
+
+        $fallback = preg_replace('/\s+o\s+/', ' ', $normalized) ?? $normalized;
+        return trim($fallback) . ' professional at work';
     }
 
     /**

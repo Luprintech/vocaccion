@@ -69,7 +69,32 @@ class VocationalResponse extends Model
     }
 
     /**
+     * Check if this is an activities response (Likert 1-5)
+     */
+    public function isActivities(): bool
+    {
+        return $this->value >= 1 && $this->value <= 5;
+    }
+
+    /**
+     * Check if this is a competencies response (binary 0 or 1)
+     */
+    public function isCompetencies(): bool
+    {
+        return $this->value === 0 || $this->value === 1;
+    }
+
+    /**
+     * Check if this is an occupations response (binary 0 or 1)
+     */
+    public function isOccupations(): bool
+    {
+        return $this->value === 0 || $this->value === 1;
+    }
+
+    /**
      * Get the weighted contribution of this response to RIASEC scoring
+     * Supports both legacy (likert, checklist) and new phases (activities, competencies, occupations)
      */
     public function getWeightedContribution(): float
     {
@@ -78,15 +103,16 @@ class VocationalResponse extends Model
         }
 
         $weight = $this->item->weight ?? 1.0;
+        $phase = $this->item->phase;
 
         // Normalize value based on phase
-        if ($this->item->phase === 'likert') {
-            // Likert: 1-5 → normalize to 0-1 range
+        if ($phase === 'likert' || $phase === 'activities') {
+            // Likert/Activities: 1-5 → normalize to 0-1 range
             return (($this->value - 1) / 4) * $weight;
-        } elseif ($this->item->phase === 'checklist') {
-            // Checklist: 0 or 1 → direct contribution
+        } elseif ($phase === 'checklist' || $phase === 'competencies' || $phase === 'occupations') {
+            // Binary: 0 or 1 → direct contribution
             return $this->value * $weight;
-        } elseif ($this->item->phase === 'comparative') {
+        } elseif ($phase === 'comparative') {
             // Comparative: -1, 0, 1 → normalize to 0-1 range
             return (($this->value + 1) / 2) * $weight;
         }

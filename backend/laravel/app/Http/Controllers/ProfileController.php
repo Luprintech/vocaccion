@@ -14,6 +14,7 @@ use App\Models\Idioma;
 use App\Models\Habilidad;
 use App\Models\Interes;
 use App\Models\HabilidadInteres;
+use App\Models\ItinerarioGenerado;
 use Illuminate\Support\Carbon;
 
 class ProfileController extends Controller
@@ -228,6 +229,14 @@ class ProfileController extends Controller
                     $interes->perfil_id = $perfil->id;
                     $interes->save();
                 }
+            }
+
+            // 6. Invalidate cached itinerarios (any profile change might affect itinerary generation)
+            // Detect if key fields changed: nivel_estudios, formacion, experiencia, hobbies
+            // For simplicity, invalidate ALL cached itineraries for this user (cheap operation)
+            $deletedCount = ItinerarioGenerado::where('user_id', $user->id)->delete();
+            if ($deletedCount > 0) {
+                \Log::info("ProfileController::store — invalidated {$deletedCount} cached itinerario(s) for user {$user->id} after profile update");
             }
 
             DB::commit();

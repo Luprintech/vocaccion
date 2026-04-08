@@ -9,7 +9,8 @@ use Illuminate\Support\Collection;
  * RiasecScoreCalculatorService
  * 
  * Pure deterministic RIASEC scoring from vocational responses.
- * Handles all three phase types: Likert (1-5), Checklist (0|1), Comparative (-1|0|1).
+ * Supports both legacy phases (likert, checklist, comparative) and new phases
+ * (activities, competencies, occupations, comparative).
  * 
  * Returns normalized scores 0-100 for each RIASEC dimension.
  */
@@ -55,8 +56,8 @@ class RiasecScoreCalculatorService
             $phase = $item->phase;
 
             // Calculate contribution based on phase
-            if ($phase === 'likert') {
-                // Likert: 1-5 scale
+            if ($phase === 'likert' || $phase === 'activities') {
+                // Likert/Activities: 1-5 scale
                 // Normalize: (value - 1) / 4 → [0, 1]
                 // Contribution: normalized × weight
                 $normalized = ($response->value - 1) / 4;
@@ -67,9 +68,18 @@ class RiasecScoreCalculatorService
                 $maxScores[$dimension] += $maxPossible;
 
             } elseif ($phase === 'checklist') {
-                // Checklist: 0 or 1
+                // Legacy Checklist: 0 or 1
                 // Each checklist item can have multiple options, each targeting different dimensions
                 // The value represents binary selection (0 = not selected, 1 = selected)
+                $contribution = $response->value * $weight;
+                $maxPossible = 1.0 * $weight;
+
+                $rawScores[$dimension] += $contribution;
+                $maxScores[$dimension] += $maxPossible;
+
+            } elseif ($phase === 'competencies' || $phase === 'occupations') {
+                // Competencies/Occupations: Binary 0 or 1 (Sí/No, Me atrae/No)
+                // Direct contribution without normalization needed
                 $contribution = $response->value * $weight;
                 $maxPossible = 1.0 * $weight;
 
@@ -125,9 +135,13 @@ class RiasecScoreCalculatorService
         $rawScores = ['R' => 0.0, 'I' => 0.0, 'A' => 0.0, 'S' => 0.0, 'E' => 0.0, 'C' => 0.0];
         $maxScores = ['R' => 0.0, 'I' => 0.0, 'A' => 0.0, 'S' => 0.0, 'E' => 0.0, 'C' => 0.0];
         $breakdown = [
+            'activities' => ['count' => 0, 'contributions' => []],
+            'competencies' => ['count' => 0, 'contributions' => []],
+            'occupations' => ['count' => 0, 'contributions' => []],
+            'comparative' => ['count' => 0, 'contributions' => []],
+            // Legacy phases
             'likert' => ['count' => 0, 'contributions' => []],
             'checklist' => ['count' => 0, 'contributions' => []],
-            'comparative' => ['count' => 0, 'contributions' => []],
         ];
 
         foreach ($responses as $response) {
@@ -143,7 +157,7 @@ class RiasecScoreCalculatorService
             $contribution = 0.0;
             $maxPossible = 0.0;
 
-            if ($phase === 'likert') {
+            if ($phase === 'likert' || $phase === 'activities') {
                 $normalized = ($response->value - 1) / 4;
                 $contribution = $normalized * $weight;
                 $maxPossible = 1.0 * $weight;
@@ -151,11 +165,13 @@ class RiasecScoreCalculatorService
                 $rawScores[$dimension] += $contribution;
                 $maxScores[$dimension] += $maxPossible;
 
-                $breakdown['likert']['count']++;
-                $breakdown['likert']['contributions'][] = [
+                $breakdownKey = $phase === 'activities' ? 'activities' : 'likert';
+                $breakdown[$breakdownKey]['count']++;
+                $breakdown[$breakdownKey]['contributions'][] = [
                     'item_id' => $item->id,
                     'dimension' => $dimension,
                     'value' => $response->value,
+                    'weight' => $weight,
                     'contribution' => $contribution,
                 ];
 
@@ -171,6 +187,23 @@ class RiasecScoreCalculatorService
                     'item_id' => $item->id,
                     'dimension' => $dimension,
                     'value' => $response->value,
+                    'weight' => $weight,
+                    'contribution' => $contribution,
+                ];
+
+            } elseif ($phase === 'competencies' || $phase === 'occupations') {
+                $contribution = $response->value * $weight;
+                $maxPossible = 1.0 * $weight;
+
+                $rawScores[$dimension] += $contribution;
+                $maxScores[$dimension] += $maxPossible;
+
+                $breakdown[$phase]['count']++;
+                $breakdown[$phase]['contributions'][] = [
+                    'item_id' => $item->id,
+                    'dimension' => $dimension,
+                    'value' => $response->value,
+                    'weight' => $weight,
                     'contribution' => $contribution,
                 ];
 
@@ -194,6 +227,7 @@ class RiasecScoreCalculatorService
                     'dimension_a' => $dimension,
                     'dimension_b' => $item->dimension_b,
                     'value' => $response->value,
+                    'weight' => $weight,
                     'contribution_a' => $contribution,
                     'contribution_b' => $item->dimension_b ? (1 - $normalized) * $weight : 0,
                 ];
@@ -225,16 +259,22 @@ class RiasecScoreCalculatorService
 
     /**
      * Validate that responses cover all required phases
+     * Detects automatically whether this is new system (activities/competencies/occupations)
+     * or legacy system (likert/checklist)
      *
      * @param Collection<VocationalResponse> $responses
-     * @return array{valid: bool, missing_phases: array, phase_counts: array}
+     * @return array{valid: bool, missing_phases: array, phase_counts: array, system: string}
      */
     public function validateResponses(Collection $responses): array
     {
         $phaseCounts = [
+            'activities' => 0,
+            'competencies' => 0,
+            'occupations' => 0,
+            'comparative' => 0,
+            // Legacy
             'likert' => 0,
             'checklist' => 0,
-            'comparative' => 0,
         ];
 
         foreach ($responses as $response) {
@@ -244,7 +284,48 @@ class RiasecScoreCalculatorService
             }
         }
 
-        // Expected counts (from design spec: 18 likert + 10 checklist + 6 comparative = 34)
+        // Detect system based on which phases are present
+        $isNewSystem = $phaseCounts['activities'] > 0 || $phaseCounts['competencies'] > 0 || $phaseCounts['occupations'] > 0;
+        $isLegacySystem = $phaseCounts['likert'] > 0 || $phaseCounts['checklist'] > 0;
+
+        if ($isNewSystem && $isLegacySystem) {
+            // Mixed system (error state)
+            return [
+                'valid' => false,
+                'missing_phases' => [],
+                'phase_counts' => $phaseCounts,
+                'expected_counts' => [],
+                'system' => 'mixed (error)',
+                'error' => 'Responses contain both new and legacy phases',
+            ];
+        }
+
+        // New system: 30 activities + 18 competencies + 18 occupations + 6 comparative = 72
+        if ($isNewSystem) {
+            $expectedCounts = [
+                'activities' => 30,
+                'competencies' => 18,
+                'occupations' => 18,
+                'comparative' => 6,
+            ];
+            
+            $missingPhases = [];
+            foreach ($expectedCounts as $phase => $expected) {
+                if ($phaseCounts[$phase] < $expected) {
+                    $missingPhases[] = $phase;
+                }
+            }
+            
+            return [
+                'valid' => empty($missingPhases),
+                'missing_phases' => $missingPhases,
+                'phase_counts' => $phaseCounts,
+                'expected_counts' => $expectedCounts,
+                'system' => 'new',
+            ];
+        }
+
+        // Legacy system: 18 likert + 10 checklist + 6 comparative = 34
         $expectedCounts = [
             'likert' => 18,
             'checklist' => 10,
@@ -263,6 +344,7 @@ class RiasecScoreCalculatorService
             'missing_phases' => $missingPhases,
             'phase_counts' => $phaseCounts,
             'expected_counts' => $expectedCounts,
+            'system' => 'legacy',
         ];
     }
 }

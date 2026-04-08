@@ -80,19 +80,39 @@ class QuestionBank extends Model
             $vector[$this->dimension] = $this->weight;
             $vector[$this->dimension_b] = $this->weight;
         } else {
-            // Likert and checklist affect one dimension
+            // Activities, competencies, occupations affect one dimension
             $vector[$this->dimension] = $this->weight;
         }
 
         return $vector;
     }
 
+    // =========================================================================
+    // Phase type checkers
+    // =========================================================================
+
     /**
-     * Check if this is a checklist item
+     * Check if this is an activities item (Likert 5 points)
      */
-    public function isChecklist(): bool
+    public function isActivities(): bool
     {
-        return $this->phase === 'checklist';
+        return $this->phase === 'activities';
+    }
+
+    /**
+     * Check if this is a competencies item (Yes/No)
+     */
+    public function isCompetencies(): bool
+    {
+        return $this->phase === 'competencies';
+    }
+
+    /**
+     * Check if this is an occupations item (Attracts me / Doesn't attract)
+     */
+    public function isOccupations(): bool
+    {
+        return $this->phase === 'occupations';
     }
 
     /**
@@ -104,7 +124,59 @@ class QuestionBank extends Model
     }
 
     /**
-     * Get checklist options with their dimensions
+     * Check if this is a legacy checklist item (deprecated)
+     */
+    public function isChecklist(): bool
+    {
+        return $this->phase === 'checklist';
+    }
+
+    /**
+     * Check if this is a legacy likert item (deprecated)
+     */
+    public function isLikert(): bool
+    {
+        return $this->phase === 'likert';
+    }
+
+    // =========================================================================
+    // Phase-specific helpers
+    // =========================================================================
+
+    /**
+     * Get the expected response type for this phase
+     * 
+     * @return string 'likert_5'|'binary'|'comparative'
+     */
+    public function getResponseType(): string
+    {
+        return match ($this->phase) {
+            'activities' => 'likert_5',        // 1-5 scale
+            'competencies' => 'binary',        // Yes/No (1/0)
+            'occupations' => 'binary',         // Attracts/Doesn't (1/0)
+            'comparative' => 'comparative',    // Choice between A/B/Both
+            'likert' => 'likert_5',           // Legacy
+            'checklist' => 'options',         // Legacy
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * Get the maximum score for this item
+     */
+    public function getMaxScore(): float
+    {
+        return match ($this->phase) {
+            'activities' => 5.0 * $this->weight,     // Likert 1-5
+            'competencies' => 1.0 * $this->weight,   // Binary 0-1
+            'occupations' => 1.0 * $this->weight,    // Binary 0-1
+            'comparative' => 1.0 * $this->weight,    // 1 point for choice
+            default => 1.0 * $this->weight,
+        };
+    }
+
+    /**
+     * Get checklist options with their dimensions (legacy)
      */
     public function getChecklistOptions(): array
     {

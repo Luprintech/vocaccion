@@ -275,6 +275,7 @@ function AuthButtonsDesktop({ unreadCount = 0 }) {
   const [esPro, setEsPro] = useState(false);
 
   const role = (user && user.roles && user.roles.length > 0) ? user.roles[0].nombre : (typeof window !== 'undefined' ? localStorage.getItem('rol') : null)
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
   // Cargar datos del perfil (nombre e imagen) cuando el usuario está autenticado
   useEffect(() => {
@@ -282,7 +283,7 @@ function AuthButtonsDesktop({ unreadCount = 0 }) {
       if (!user || !token) return;
 
       try {
-        const response = await fetch('http://localhost:8000/api/profile', {
+        const response = await fetch(`${API_URL}/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/json',
@@ -291,9 +292,9 @@ function AuthButtonsDesktop({ unreadCount = 0 }) {
 
         if (response.ok) {
           const result = await response.json();
-          if (result.success && result.data) {
+          if (result.success) {
             setProfileData({
-              nombre: result.data.nombre,
+              nombre: result.data?.nombre || null,
               profile_image: result.profile_image
             });
           }
@@ -301,7 +302,7 @@ function AuthButtonsDesktop({ unreadCount = 0 }) {
 
         // Verificar si es Pro Plus (solo para estudiantes)
         if (role === 'estudiante') {
-          const subResponse = await fetch('http://localhost:8000/api/estudiante/mi-suscripcion', {
+          const subResponse = await fetch(`${API_URL}/estudiante/mi-suscripcion`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Accept': 'application/json',
@@ -323,7 +324,7 @@ function AuthButtonsDesktop({ unreadCount = 0 }) {
     };
 
     fetchProfileData();
-  }, [user, token, role]);
+  }, [user, token, role, API_URL]);
 
   // Polling para mensajes sin leer — eliminado: ahora lo gestiona el Header padre
   // (unreadCount llega como prop)

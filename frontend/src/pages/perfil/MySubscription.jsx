@@ -207,7 +207,7 @@ export default function MySubscription() {
                         <CardContent>
                             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {(current_plan_name === 'Plan Pro Plus' ? [
-                                    "Test vocacional completo con IA",
+                                    "Test vocacional basado en RIASEC",
                                     "Resultados detallados y análisis profundo",
                                     "Recomendaciones personalizadas de carreras",
                                     "Itinerario formativo paso a paso",
@@ -215,7 +215,7 @@ export default function MySubscription() {
                                     "Seguimiento personalizado con orientador",
                                     "Soporte prioritario 24/7"
                                 ] : [
-                                    "Test vocacional completo con IA",
+                                    "Test vocacional basado en RIASEC",
                                     "Resultados detallados y análisis profundo",
                                     "Recomendaciones personalizadas de carreras",
                                     "Itinerario formativo paso a paso",

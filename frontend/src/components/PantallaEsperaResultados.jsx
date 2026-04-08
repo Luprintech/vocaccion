@@ -44,18 +44,21 @@ export default function PantallaEsperaResultados() {
     return (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-purple-100 via-white to-green-100 p-4">
 
-            {/* Contenedor principal con animación de entrada */}
+            {/* Contenedor principal compacto y centrado */}
             <div className="w-full max-w-md flex flex-col items-center animate-fadeInUp">
 
-                {/* Animación CSS (Reemplazo de Lottie) */}
-                <div className="relative mb-12">
-                    <div className="w-32 h-32 border-4 border-purple-100 rounded-full animate-ping absolute inset-0"></div>
-                    <div className="w-32 h-32 border-4 border-purple-600 border-t-transparent rounded-full animate-spin relative z-10"></div>
-                    <Sparkles className="w-12 h-12 text-purple-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+                {/* Animación CSS (spinner reducido) */}
+                <div className="relative mb-6">
+                    <div className="w-24 h-24 border-4 border-purple-100 rounded-full animate-ping absolute inset-0"></div>
+                    <div className="w-24 h-24 border-4 border-purple-600 border-t-transparent rounded-full animate-spin relative z-10"></div>
+                    <Sparkles className="w-10 h-10 text-purple-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 animate-pulse" />
                 </div>
 
+                {/* Título "Generación de informe" */}
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Generación de informe</h2>
+
                 {/* Barra de progreso */}
-                <div className="w-full h-4 bg-white/50 rounded-full overflow-hidden backdrop-blur-sm shadow-inner mb-4 border border-white/60">
+                <div className="w-full h-3 bg-white/50 rounded-full overflow-hidden backdrop-blur-sm shadow-inner mb-2 border border-white/60">
                     <div
                         className="h-full bg-gradient-to-r from-purple-500 to-green-500 rounded-full transition-all duration-300 ease-out shadow-[0_0_15px_rgba(168,85,247,0.4)]"
                         style={{ width: `${progress}%` }}
@@ -66,16 +69,16 @@ export default function PantallaEsperaResultados() {
                 </div>
 
                 {/* Porcentaje numérico */}
-                <div className="text-purple-600 font-bold text-lg mb-6">
+                <div className="text-purple-600 font-bold text-base mb-3">
                     {Math.round(progress)}%
                 </div>
 
-                {/* Frases motivacionales rotativas */}
-                <div className="h-8 relative w-full text-center">
+                {/* Frases motivacionales rotativas (más compactas) */}
+                <div className="h-7 relative w-full text-center mb-2">
                     {phrases.map((phrase, index) => (
                         <p
                             key={index}
-                            className={`absolute inset-0 text-gray-600 font-medium text-lg transition-all duration-500 transform
+                            className={`absolute inset-0 text-gray-600 font-medium text-base transition-all duration-500 transform
                 ${index === phraseIndex
                                     ? 'opacity-100 translate-y-0 scale-100'
                                     : 'opacity-0 translate-y-4 scale-95 pointer-events-none'
@@ -86,6 +89,11 @@ export default function PantallaEsperaResultados() {
                         </p>
                     ))}
                 </div>
+
+                {/* Mensaje informativo */}
+                <p className="text-sm text-gray-500 text-center mt-2">
+                    Esto puede tardar unos segundos...
+                </p>
 
             </div>
         </div>

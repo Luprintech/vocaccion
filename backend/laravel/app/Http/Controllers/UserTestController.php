@@ -361,7 +361,11 @@ class UserTestController extends Controller
                     ->latest()
                     ->first();
 
-                if ($vocSession && !empty($vocSession->history_log)) {
+                $hasV2Responses = $vocSession
+                    ? \App\Models\VocationalResponse::where('session_id', $vocSession->id)->exists()
+                    : false;
+
+                if ($vocSession && (!empty($vocSession->history_log) || $hasV2Responses)) {
                     Log::info('listResults: test_results vacío con vocSession completada, regenerando...', [
                         'usuario_id' => $user->id,
                         'session_id' => $vocSession->id,
@@ -391,7 +395,31 @@ class UserTestController extends Controller
                     // Generar profesiones del catálogo + informe con narrativa
                     try {
                         $profesiones = $this->careerMatcher->match($profileData);
-                        $reportMarkdown = $this->gemini->generateReport($profileData, $profesiones);
+
+                        // Informe híbrido: base determinística + narrativa IA opcional
+                        $scores = [
+                            'R' => (float) ($profileData['realistic_score'] ?? 0),
+                            'I' => (float) ($profileData['investigative_score'] ?? 0),
+                            'A' => (float) ($profileData['artistic_score'] ?? 0),
+                            'S' => (float) ($profileData['social_score'] ?? 0),
+                            'E' => (float) ($profileData['enterprising_score'] ?? 0),
+                            'C' => (float) ($profileData['conventional_score'] ?? 0),
+                        ];
+                        arsort($scores);
+                        $riasecCode = implode('', array_slice(array_keys($scores), 0, 3));
+
+                        $aiNarrative = [];
+                        try {
+                            $aiNarrative = $this->gemini->generateNarrativeSections($profileData, $riasecCode, '');
+                        } catch (\Throwable $narrEx) {
+                            Log::warning('listResults: narrativa IA no disponible, se usa determinístico', [
+                                'usuario_id' => $user->id,
+                                'error' => $narrEx->getMessage(),
+                            ]);
+                        }
+
+                        $reportMarkdown = app(\App\Services\DeterministicReportService::class)
+                            ->build($profileData, $profesiones, '', is_array($aiNarrative) ? $aiNarrative : []);
 
                         if (!empty($profesiones) && is_array($profesiones)) {
                             foreach ($profesiones as &$profesion) {
@@ -486,4 +514,3 @@ class UserTestController extends Controller
         }
     }
 }
-
