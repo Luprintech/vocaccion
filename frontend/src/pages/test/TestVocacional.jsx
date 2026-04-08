@@ -2,22 +2,25 @@
  * TestVocacional - V2 Curated Bank Flow
  * 
  * Manages the v2 test experience with phase-driven UI:
- * - Likert phase (18 questions)
- * - Checklist phase (10 questions)
+ * - Activities phase (30 questions)
+ * - Competencies phase (18 questions)
+ * - Occupations phase (18 questions)
  * - Comparative phase (6 questions)
  * 
  * Backend determines version, frontend adapts.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContextFixed';
-import { startTest, responderPregunta, anteriorPregunta, getTestEstado } from '@/api';
+import { startTest, responderPregunta, anteriorPregunta, getTestEstado, preloadOccupationImages } from '@/api';
 import LikertScale from '@/components/test/LikertScale';
-import ChecklistQuestion from '@/components/test/ChecklistQuestion';
+import BinaryChoice from '@/components/test/BinaryChoice';
 import ComparativeScale from '@/components/test/ComparativeScale';
 import PhaseTransition from '@/components/test/PhaseTransition';
-import { Loader2, ArrowLeft, CheckCircle, ChevronLeft } from 'lucide-react';
+import TestViewportShell from '@/components/test/TestViewportShell';
+import RiasecMiniRadar from '@/components/test/RiasecMiniRadar';
+import { Loader2, ArrowLeft, ChevronLeft } from 'lucide-react';
 
 export default function TestVocacional() {
   const { isAuthenticated } = useAuth();
@@ -31,18 +34,94 @@ export default function TestVocacional() {
   
   // V2 state
   const [currentItem, setCurrentItem] = useState(null);
-  const [currentPhase, setCurrentPhase] = useState('likert');
+  const [currentPhase, setCurrentPhase] = useState('activities');
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [totalItems, setTotalItems] = useState(34);
+  const [totalItems, setTotalItems] = useState(72);
   const [phaseTransition, setPhaseTransition] = useState(null);
   
   // Answer state
   const [currentAnswer, setCurrentAnswer] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [startTime, setStartTime] = useState(Date.now());
-  
+
+  // Occupation images: { item_id: image_url }
+  const [occupationImages, setOccupationImages] = useState({});
+
+  // Partial RIASEC scores for the live hexagon: { R, I, A, S, E, C } 0-100
+  const DIMS = ['R', 'I', 'A', 'S', 'E', 'C'];
+  const [scoreAccum, setScoreAccum] = useState(() =>
+    Object.fromEntries(DIMS.map((d) => [d, { raw: 0, max: 0 }]))
+  );
+  const partialScores = Object.fromEntries(
+    DIMS.map((d) => [
+      d,
+      scoreAccum[d].max > 0
+        ? Math.round((scoreAccum[d].raw / scoreAccum[d].max) * 100)
+        : 0,
+    ])
+  );
+
   // Error state
   const [error, setError] = useState(null);
+
+  const normalizePhase = (phase) => {
+    if (phase === 'likert') return 'activities';
+    if (phase === 'checklist') return 'competencies';
+    return phase;
+  };
+
+  const phaseLabels = {
+    activities: 'Actividades',
+    competencies: 'Competencias',
+    occupations: 'Ocupaciones',
+    comparative: 'Comparación',
+  };
+
+  const phaseHelperCopy = {
+    activities: 'Indica cuánto te identificas con cada afirmación.',
+    competencies: 'Responde con sinceridad si hoy podrías realizar cada acción.',
+    occupations: 'Responde de forma intuitiva si te atrae cada ocupación.',
+    comparative: 'Elige la opción que más se acerque a ti.',
+  };
+
+  const warmOccupationImages = useCallback((imagesMap = {}) => {
+    Object.values(imagesMap)
+      .filter((url) => typeof url === 'string' && url.length > 0)
+      .forEach((url) => {
+        const img = new Image();
+        img.src = url;
+      });
+  }, []);
+
+  const preloadOccupationAssets = useCallback(async () => {
+    if (!sessionId || Object.keys(occupationImages).length > 0) return;
+    try {
+      const r = await preloadOccupationImages(sessionId);
+      if (r?.success && r?.images && typeof r.images === 'object') {
+        setOccupationImages(r.images);
+        warmOccupationImages(r.images);
+      }
+    } catch {
+      // silent fallback
+    }
+  }, [sessionId, occupationImages, warmOccupationImages]);
+
+  // Restore accumulated scores from localStorage when sessionId is known
+  useEffect(() => {
+    if (!sessionId) return;
+    const saved = localStorage.getItem(`riasec_accum_${sessionId}`);
+    if (saved) {
+      try {
+        setScoreAccum(JSON.parse(saved));
+      } catch (_) {}
+    }
+  }, [sessionId]);
+
+  // Persist accumulated scores to localStorage on every change
+  useEffect(() => {
+    if (!sessionId) return;
+    localStorage.setItem(`riasec_accum_${sessionId}`, JSON.stringify(scoreAccum));
+  }, [scoreAccum, sessionId]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -52,6 +131,12 @@ export default function TestVocacional() {
     
     initializeTest();
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (currentPhase === 'occupations') {
+      preloadOccupationAssets();
+    }
+  }, [currentPhase, preloadOccupationAssets]);
 
   const initializeTest = async () => {
     try {
@@ -91,7 +176,7 @@ export default function TestVocacional() {
       // V2 flow
       setSessionId(res.session_id);
       setCurrentItem(res.item);
-      setCurrentPhase(res.phase);
+      setCurrentPhase(normalizePhase(res.phase));
       setCurrentIndex(res.current_index);
       setTotalItems(res.total_items);
       setCurrentAnswer(res.answer ?? null);
@@ -119,15 +204,13 @@ export default function TestVocacional() {
     try {
       const responseTime = Date.now() - startTime;
       
-      const serializedValue = currentPhase === 'checklist'
-        ? ((Array.isArray(currentAnswer) && currentAnswer.length > 0) ? 1 : 0)
-        : currentAnswer;
+      const serializedValue = currentAnswer;
 
       const payload = {
         session_id: sessionId,
         item_id: currentItem.id,
         value: serializedValue,
-        response_payload: currentPhase === 'checklist' ? { selected_options: Array.isArray(currentAnswer) ? currentAnswer : [] } : null,
+        response_payload: null,
         response_time_ms: responseTime
       };
 
@@ -139,18 +222,60 @@ export default function TestVocacional() {
         return;
       }
 
+      // Accumulate partial RIASEC score for the live hexagon
+      if (currentItem?.dimension) {
+        const dim = currentItem.dimension;
+        const weight = currentItem.weight ?? 1.0;
+        const phase = currentItem.phase;
+        let contribution = 0;
+        let maxContrib = weight;
+        if (phase === 'activities' || phase === 'likert') {
+          contribution = ((serializedValue - 1) / 4) * weight;
+        } else if (phase === 'competencies' || phase === 'occupations' || phase === 'checklist') {
+          contribution = serializedValue * weight;
+        } else if (phase === 'comparative') {
+          contribution = ((serializedValue + 1) / 2) * weight;
+          const dimB = currentItem.dimension_b;
+          if (dimB) {
+            const invContrib = (1 - (serializedValue + 1) / 2) * weight;
+            setScoreAccum((prev) => ({
+              ...prev,
+              [dimB]: { raw: (prev[dimB]?.raw ?? 0) + invContrib, max: (prev[dimB]?.max ?? 0) + maxContrib },
+            }));
+          }
+        }
+        setScoreAccum((prev) => ({
+          ...prev,
+          [dim]: { raw: (prev[dim]?.raw ?? 0) + contribution, max: (prev[dim]?.max ?? 0) + maxContrib },
+        }));
+      }
+
       // Check if test is complete
       if (res.test_complete) {
+        localStorage.removeItem(`riasec_accum_${sessionId}`);
         navigate('/analisis-test', { state: { session_id: sessionId } });
         return;
       }
 
+      // Preload occupation images when entering occupations phase
+      if ((res.phase_transition === 'occupations' || res.phase === 'occupations') && Object.keys(occupationImages).length === 0) {
+        preloadOccupationImages(sessionId)
+          .then((r) => {
+            if (r?.success && r?.images && typeof r.images === 'object') {
+              setOccupationImages(r.images);
+              warmOccupationImages(r.images);
+            }
+          })
+          .catch(() => {});
+      }
+
       // Check for phase transition
-      if (res.phase_transition) {
-        setPhaseTransition(res.phase_transition);
+      if (res.phase_transition || res.early_stopped) {
+        // early_stopped uses special 'early_stop' key so PhaseTransition shows the right message
+        setPhaseTransition(res.early_stopped ? 'early_stop' : normalizePhase(res.phase_transition));
         // Store next item data for after transition
         setCurrentItem(res.item);
-        setCurrentPhase(res.phase);
+        setCurrentPhase(normalizePhase(res.phase));
         setCurrentIndex(res.current_index);
         setCurrentAnswer(res.answer ?? null);
         setStartTime(Date.now());
@@ -160,7 +285,7 @@ export default function TestVocacional() {
 
       // Move to next item
       setCurrentItem(res.item);
-      setCurrentPhase(res.phase);
+      setCurrentPhase(normalizePhase(res.phase));
       setCurrentIndex(res.current_index);
       setCurrentAnswer(res.answer ?? null);
       setStartTime(Date.now());
@@ -191,7 +316,7 @@ export default function TestVocacional() {
 
       setPhaseTransition(null);
       setCurrentItem(res.item);
-      setCurrentPhase(res.phase);
+      setCurrentPhase(normalizePhase(res.phase));
       setCurrentIndex(res.current_index);
       setCurrentAnswer(res.answer ?? null);
       setStartTime(Date.now());
@@ -216,11 +341,11 @@ export default function TestVocacional() {
     return Math.round((currentIndex / totalItems) * 100);
   };
 
+  const getQuestionCounter = () => {
+    return `${Math.min(currentIndex + 1, totalItems)} / ${totalItems}`;
+  };
+
   const canSubmit = () => {
-    if (currentPhase === 'checklist') {
-      // Checklist allows empty answers
-      return true;
-    }
     return currentAnswer !== null && currentAnswer !== undefined;
   };
 
@@ -277,11 +402,16 @@ export default function TestVocacional() {
 
   // Main test UI
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 px-3 py-3 md:px-4 md:py-5 flex items-center justify-center">
-      <div className="max-w-3xl w-full mx-auto">
-        {/* Header with progress */}
-        <div className="bg-white rounded-t-2xl shadow-lg px-4 py-3 md:px-5 md:py-3">
-          <div className="flex items-start justify-between gap-3 mb-3">
+    <TestViewportShell
+      className="min-h-screen md:min-h-0"
+      contentClassName="overflow-y-auto py-3"
+      fillHeight={false}
+      contentGrow={false}
+      centered={true}
+      header={(
+        <>
+          {/* Top row: save button only */}
+          <div className="flex items-center justify-between gap-3 mb-3">
             <button
               onClick={handleSaveForLater}
               className="text-gray-600 hover:text-gray-800 flex items-center space-x-2 transition text-left"
@@ -289,107 +419,106 @@ export default function TestVocacional() {
               <ArrowLeft className="w-4 h-4 mt-0.5 shrink-0" />
               <span className="text-xs md:text-sm font-medium leading-tight">Guardar para más tarde</span>
             </button>
-            <div className="flex items-center space-x-2 shrink-0 rounded-full bg-green-50 px-3 py-1.5 border border-green-100">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              <span className="text-xs md:text-sm font-semibold text-gray-700">
-                {currentIndex} / {totalItems}
-              </span>
+            <p className="text-[11px] md:text-xs font-semibold text-purple-600 uppercase leading-tight shrink-0">
+              Fase: {phaseLabels[currentPhase] || currentPhase}
+            </p>
+          </div>
+
+          {/* Progress bar + radar side by side */}
+          <div className="flex items-center gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-purple-500 to-blue-500 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${getProgress()}%` }}
+                />
+              </div>
+              <div className="flex justify-between items-center mt-1.5 gap-2">
+                <p className="text-xs text-gray-500">Progreso: {getProgress()}%</p>
+              </div>
+              <p className="mt-1 text-[11px] md:text-xs text-gray-600 leading-snug">
+                {phaseHelperCopy[currentPhase]}
+              </p>
+            </div>
+            <div className="shrink-0">
+              <RiasecMiniRadar scores={partialScores} size="sm" />
             </div>
           </div>
+        </>
+      )}
+      footer={(
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={handlePrevious}
+            type="button"
+            disabled={currentIndex <= 0 || isSubmitting}
+            className={`w-full py-3 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${currentIndex > 0 && !isSubmitting ? 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm' : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-100'}`}
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span>Anterior</span>
+          </button>
 
-          {/* Progress bar */}
-          <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-purple-500 to-blue-500 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${getProgress()}%` }}
-            ></div>
-          </div>
-          <div className="flex justify-between items-center mt-2 gap-2">
-            <p className="text-xs text-gray-500">Progreso: {getProgress()}%</p>
-            <p className="text-[11px] md:text-xs font-semibold text-purple-600 uppercase text-right leading-tight">
-              Fase: {currentPhase === 'likert' ? 'Escala de Acuerdo' : currentPhase === 'checklist' ? 'Selección Múltiple' : 'Comparación'}
-            </p>
-          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit() || isSubmitting}
+            className={`
+            w-full py-3 rounded-xl font-bold text-base md:text-lg transition-all duration-200
+            ${canSubmit() && !isSubmitting
+              ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }
+            flex items-center justify-center space-x-2
+          `}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Enviando...</span>
+              </>
+            ) : (
+              <>
+                <span>Siguiente</span>
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </>
+            )}
+          </button>
         </div>
+      )}
+    >
+      <div className="flex items-start">
+        {currentPhase === 'activities' && (
+          <LikertScale
+            item={currentItem}
+            value={currentAnswer}
+            onChange={handleAnswerChange}
+            disabled={isSubmitting}
+          />
+        )}
 
-        {/* Question content */}
-        <div className="bg-white shadow-lg px-4 py-3 md:px-5 md:py-3">
-          {currentPhase === 'likert' && (
-            <LikertScale
-              item={currentItem}
-              value={currentAnswer}
-              onChange={handleAnswerChange}
-              disabled={isSubmitting}
-            />
-          )}
-          
-          {currentPhase === 'checklist' && (
-            <ChecklistQuestion
-              item={currentItem}
-              selectedOptions={currentAnswer || []}
-              onChange={handleAnswerChange}
-              disabled={isSubmitting}
-            />
-          )}
-          
-          {currentPhase === 'comparative' && (
-            <ComparativeScale
-              item={currentItem}
-              value={currentAnswer}
-              onChange={handleAnswerChange}
-              disabled={isSubmitting}
-            />
-          )}
-        </div>
+        {(currentPhase === 'competencies' || currentPhase === 'occupations') && (
+          <BinaryChoice
+            item={currentItem}
+            value={currentAnswer}
+            onChange={handleAnswerChange}
+            disabled={isSubmitting}
+            imageUrl={currentPhase === 'occupations' ? (occupationImages[currentItem?.id] ?? null) : null}
+            labels={currentPhase === 'competencies'
+              ? ['No, todavía no', 'Sí, podría hacerlo']
+              : ['No me atrae', 'Me atrae']}
+          />
+        )}
 
-        {/* Footer with submit button */}
-        <div className="bg-white rounded-b-2xl shadow-lg px-4 py-3 md:px-5 md:py-3 border-t border-gray-100">
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={handlePrevious}
-              type="button"
-              disabled={currentIndex <= 0 || isSubmitting}
-              className={`w-full py-3 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${currentIndex > 0 && !isSubmitting ? 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm' : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-100'}`}
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Anterior</span>
-            </button>
-
-            <button
-              onClick={handleSubmit}
-              disabled={!canSubmit() || isSubmitting}
-              className={`
-              w-full py-3 rounded-xl font-bold text-base md:text-lg transition-all duration-200
-              ${canSubmit() && !isSubmitting
-                ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }
-              flex items-center justify-center space-x-2
-            `}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Enviando...</span>
-                </>
-              ) : (
-                <>
-                  <span>Siguiente</span>
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </>
-              )}
-            </button>
-          </div>
-           
-          {currentPhase === 'checklist' && (
-            <p className="text-center text-xs text-gray-500 mt-2">
-              Puedes continuar sin seleccionar ninguna opción si ninguna aplica
-            </p>
-          )}
-        </div>
+        {currentPhase === 'comparative' && (
+          <ComparativeScale
+            item={currentItem}
+            value={currentAnswer}
+            onChange={handleAnswerChange}
+            disabled={isSubmitting}
+          />
+        )}
       </div>
-    </div>
+    </TestViewportShell>
   );
 }

@@ -9,7 +9,10 @@ use App\Models\ItinerarioBase;
 use App\Models\ItinerarioGenerado;
 use App\Models\Profesion;
 use App\Models\TestSesion;
+use App\Models\VocationalSession;
+use App\Models\VocationalProfile;
 use App\Services\GeminiService;
+use App\Helpers\PersonalizationHelper;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class ItinerarioController extends Controller
@@ -21,9 +24,32 @@ class ItinerarioController extends Controller
     {
         try {
             $user = Auth::user();
-            $sesion = TestSesion::where('id', $sessionId)
+
+            // Dual-query: V2 VocationalSession first, then V1 TestSesion fallback
+            $sesion = null;
+            $isV2 = false;
+
+            $vocSession = VocationalSession::where('id', $sessionId)
                 ->where('usuario_id', $user->id)
-                ->firstOrFail();
+                ->first();
+
+            if ($vocSession) {
+                $isV2 = true;
+                // Build a compatible $sesion-like object from VocationalSession
+                $sesion = (object) [
+                    'area'         => null,
+                    'subarea'      => null,
+                    'user_summary' => null,
+                ];
+            } else {
+                $sesion = TestSesion::where('id', $sessionId)
+                    ->where('usuario_id', $user->id)
+                    ->first();
+            }
+
+            if (!$sesion) {
+                return response()->json(['error' => 'Sesión no encontrada.'], 404);
+            }
 
             // Buscar el último itinerario generado por el usuario
             $itinerarioModel = ItinerarioGenerado::where('user_id', $user->id)
@@ -101,11 +127,20 @@ class ItinerarioController extends Controller
         $user->load(['objetivo.profesion', 'perfil.formaciones']);
 
         // VERIFICACIÓN OBLIGATORIA: ¿El usuario ha hecho el test?
-        // Usar TestSesion para consistencia con el nuevo sistema
-        $lastSession = TestSesion::where('usuario_id', $user->id)
-            ->where('estado', 'completado')
-            ->latest('completed_at')
+        // Dual-query: V2 VocationalSession (modern engine) first, then V1 TestSesion fallback.
+        // This ensures V2 users (who never write to test_sessions) can generate itineraries.
+        $lastSession = VocationalSession::where('usuario_id', $user->id)
+            ->where('is_completed', true)
+            ->latest()
             ->first();
+
+        if (!$lastSession) {
+            // V1 fallback: legacy test_sessions table
+            $lastSession = TestSesion::where('usuario_id', $user->id)
+                ->where('estado', 'completado')
+                ->latest('completed_at')
+                ->first();
+        }
 
         if (!$lastSession) {
             return response()->json([
@@ -161,14 +196,22 @@ class ItinerarioController extends Controller
         // Nivel de estudios del usuario (Calculado)
         $estudios = $this->getHighestEducationLevel($user);
 
-        // ... buildPrompt y Gemini ...
+        // Obtener perfil vocacional del usuario (scores RIASEC)
+        $vocProfile = VocationalProfile::where('usuario_id', $user->id)->first();
+        
+        // Construir contexto de personalización
+        $personalizationContext = null;
+        if ($user->perfil) {
+            $user->perfil->load(['intereses', 'formaciones', 'experiencias']);
+            $personalizationContext = PersonalizationHelper::buildPersonalizationContext($user, $user->perfil);
+        }
 
         // Obtener itinerario base desde la BD
         $prof = Profesion::whereRaw('LOWER(titulo) = ?', [mb_strtolower($profesion)])->first();
         $base = $prof ? ItinerarioBase::where('profesion_id', $prof->id)->first() : null;
 
-        // Construir prompt para la IA
-        $prompt = $this->buildPrompt($profesion, $estudios, $ccaa, $base);
+        // Construir prompt para la IA (ahora con contexto personalizado)
+        $prompt = $this->buildPrompt($profesion, $estudios, $ccaa, $base, $vocProfile, $personalizationContext);
 
         // Llamar al servicio Gemini (ahora devuelve JSON parseado)
         $resultado = $gemini->generateItinerario($prompt);
@@ -202,9 +245,16 @@ class ItinerarioController extends Controller
 
     /**
      * Construye el prompt para generar itinerario en formato JSON con vías formativas
+     * 
+     * @param string $profesion Target profession
+     * @param string $estudios User's current education level
+     * @param string|null $ccaa User's autonomous community
+     * @param ItinerarioBase|null $base Base itinerary template from DB
+     * @param VocationalProfile|null $vocProfile User's RIASEC scores
+     * @param array|null $personalizationContext User profile context (nombre, bio, hobbies, etc.)
+     * @return string Prompt for Gemini
      */
-
-    private function buildPrompt($profesion, $estudios, $ccaa, $base)
+    private function buildPrompt($profesion, $estudios, $ccaa, $base, $vocProfile = null, $personalizationContext = null)
     {
         $pasos = $base ? json_encode($base->pasos, JSON_UNESCAPED_UNICODE) : '[]';
         $descripcion = $base->descripcion ?? '';
@@ -220,6 +270,46 @@ class ItinerarioController extends Controller
             $contextoCCAA = json_encode($dataEspecifica, JSON_UNESCAPED_UNICODE);
         }
 
+        // Build personalization block
+        $personalizationBlock = '';
+        if ($personalizationContext && PersonalizationHelper::hasContext($personalizationContext)) {
+            $personalizationBlock = "\n" . PersonalizationHelper::buildPromptBlock($personalizationContext);
+        }
+
+        // Build RIASEC scores block
+        $riasecBlock = '';
+        if ($vocProfile) {
+            $scores = [
+                'R' => $vocProfile->realistic_score ?? 0,
+                'I' => $vocProfile->investigative_score ?? 0,
+                'A' => $vocProfile->artistic_score ?? 0,
+                'S' => $vocProfile->social_score ?? 0,
+                'E' => $vocProfile->enterprising_score ?? 0,
+                'C' => $vocProfile->conventional_score ?? 0,
+            ];
+            
+            // Find top dimensions (>60 threshold for "strong")
+            $strongDimensions = [];
+            $dimensionLabels = [
+                'R' => 'Realista',
+                'I' => 'Investigador',
+                'A' => 'Artístico',
+                'S' => 'Social',
+                'E' => 'Emprendedor',
+                'C' => 'Convencional',
+            ];
+            
+            foreach ($scores as $dim => $score) {
+                if ($score > 60) {
+                    $strongDimensions[] = "{$dimensionLabels[$dim]} ({$dim}: {$score})";
+                }
+            }
+            
+            if (!empty($strongDimensions)) {
+                $riasecBlock = "\nDimensiones RIASEC dominantes del usuario: " . implode(', ', $strongDimensions) . "\n(Usa esto para alinear el consejo final con sus fortalezas vocacionales)";
+            }
+        }
+
         return <<<EOT
 Eres un orientador académico experto en el sistema educativo español, en Formación Profesional, Universidad, certificaciones y vías alternativas. 
 Debes generar un itinerario académico extremadamente preciso y accionable adaptado a la profesión del usuario.
@@ -229,7 +319,7 @@ La salida debe ser EXCLUSIVAMENTE JSON válido y parseable.
 ### CONTEXTO DEL USUARIO
 Profesión objetivo: {$profesion}
 Comunidad Autónoma: {$ccaaTexto}
-Nivel de estudios actual: {$estudios}
+Nivel de estudios actual: {$estudios}{$personalizationBlock}{$riasecBlock}
 
 ### OBJETIVO FINAL
 Genera un JSON con la siguiente estructura EXACTA:

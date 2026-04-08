@@ -44,7 +44,7 @@ const planes = [
     color: "gray",
     popular: false,
     caracteristicas: [
-      { incluido: true, texto: "Test vocacional completo con IA" },
+      { incluido: true, texto: "Test vocacional basado en RIASEC" },
       { incluido: true, texto: "Resultados básicos personalizados" },
       { incluido: true, texto: "Recomendaciones generales de carreras" },
       { incluido: false, texto: "Itinerario formativo detallado" },
@@ -67,7 +67,7 @@ const planes = [
     color: "blue",
     popular: true,
     caracteristicas: [
-      { incluido: true, texto: "Test vocacional completo con IA" },
+      { incluido: true, texto: "Test vocacional basado en RIASEC" },
       { incluido: true, texto: "Resultados detallados y análisis profundo" },
       { incluido: true, texto: "Recomendaciones personalizadas de carreras" },
       { incluido: true, texto: "Itinerario formativo paso a paso" },
@@ -90,7 +90,7 @@ const planes = [
     color: "purple",
     popular: false,
     caracteristicas: [
-      { incluido: true, texto: "Test vocacional completo con IA" },
+      { incluido: true, texto: "Test vocacional basado en RIASEC" },
       { incluido: true, texto: "Resultados detallados y análisis profundo" },
       { incluido: true, texto: "Recomendaciones personalizadas de carreras" },
       { incluido: true, texto: "Itinerario formativo paso a paso" },

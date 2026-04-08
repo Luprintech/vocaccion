@@ -204,13 +204,13 @@ export default function TestIntro() {
 
   return (
     <>
-      <section className="relative w-full min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50 overflow-hidden px-4 py-10 md:py-14">
+      <section className="relative w-full min-h-screen md:min-h-[calc(100vh-72px)] flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-green-50 overflow-hidden p-0 md:p-2">
         {/* Círculos decorativos */}
         <div className="absolute top-20 left-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
         <div className="absolute top-40 right-10 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
         <div className="absolute -bottom-8 left-1/2 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-4000"></div>
 
-        <div className={`relative bg-white shadow-2xl rounded-3xl w-full text-center space-y-6 z-10 transition-all duration-300 ${testPendiente || testFinalizado ? 'max-w-5xl px-8 md:px-14 py-12 md:py-14' : 'max-w-3xl px-10 py-12'}`}>
+        <div className="relative bg-white shadow-lg border border-gray-100 rounded-none md:rounded-2xl w-full max-w-[1200px] text-center space-y-6 z-10 transition-all duration-300 px-6 md:px-10 py-8 md:py-8">
           {inlineMessage && (
             <div className={`rounded-2xl px-5 py-4 text-sm font-medium border ${inlineMessage.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
               {inlineMessage.text}

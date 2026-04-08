@@ -141,17 +141,6 @@ export async function startTest(ageGroup = null) {
 	return response.json();
 }
 
-// 🔹 Obtener siguiente pregunta (v1 legacy)
-export async function getNextQuestion(payload) {
-	const response = await fetch(`${API_URL}/test/siguiente-pregunta`, {
-		method: "POST",
-		headers: getAuthHeaders(),
-		credentials: "include",
-		body: JSON.stringify(payload),
-	});
-	return response.json();
-}
-
 // 🔹 Responder pregunta (v2 curated bank)
 // payload: { session_id, item_id, value, response_time_ms? }
 export async function responderPregunta(payload) {
@@ -174,43 +163,44 @@ export async function anteriorPregunta(payload) {
 	return response.json();
 }
 
+// 🔹 Precarga imágenes Pexels para los ítems de la fase de ocupaciones (v2)
+export async function preloadOccupationImages(sessionId) {
+	const cacheKey = `occupation_images_v2_${sessionId}`;
+	try {
+		const cached = localStorage.getItem(cacheKey);
+		if (cached) {
+			const parsed = JSON.parse(cached);
+			if (parsed && parsed.success && typeof parsed.images === 'object') {
+				return parsed;
+			}
+		}
+	} catch {
+		// ignore broken local cache and fallback to network
+	}
+
+	const response = await fetch(`${API_URL}/test/occupation-images/${sessionId}`, {
+		method: "GET",
+		headers: getAuthHeaders(),
+		credentials: "include",
+	});
+	const payload = await response.json();
+
+	try {
+		if (payload?.success && payload?.images && typeof payload.images === 'object') {
+			localStorage.setItem(cacheKey, JSON.stringify(payload));
+		}
+	} catch {
+		// ignore cache write failures
+	}
+
+	return payload;
+}
+
 // 🔹 Analizar respuestas finales (v1 y v2 compatible)
 // Para v1: pasa { respuestas: [...] }
 // Para v2: pasa { session_id: "uuid" }
 export async function analyzeTestResults(payload) {
 	const response = await fetch(`${API_URL}/test/analizar-respuestas`, {
-		method: "POST",
-		headers: getAuthHeaders(),
-		credentials: "include",
-		body: JSON.stringify(payload),
-	});
-	return response.json();
-}
-
-// 🔹 Obtener progreso del test guardado
-export async function getUserTest() {
-	const response = await fetch(`${API_URL}/user/test/progress`, {
-		method: "GET",
-		headers: getAuthHeaders(),
-		credentials: "include",
-	});
-	return response.json();
-}
-
-// 🔹 Guardar progreso parcial del test
-export async function saveTestProgress(payload) {
-	const response = await fetch(`${API_URL}/user/test/save-progress`, {
-		method: "POST",
-		headers: getAuthHeaders(),
-		credentials: "include",
-		body: JSON.stringify(payload),
-	});
-	return response.json();
-}
-
-// 🔹 Guardar resultado final del test
-export async function saveTestResult(payload) {
-	const response = await fetch(`${API_URL}/user/test/save-result`, {
 		method: "POST",
 		headers: getAuthHeaders(),
 		credentials: "include",

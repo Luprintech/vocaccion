@@ -129,9 +129,7 @@ class AuthController extends Controller
         // Obtener perfil completo si existe
         $perfil = $usuario->perfil;
 
-        $profileImageUrl = $usuario->profile_image
-            ? asset('storage/' . $usuario->profile_image)
-            : null;
+        $profileImageUrl = $this->resolveProfileImageUrl($usuario->profile_image);
 
         Log::info(' GET /api/profile', [
             'usuario_id' => $usuario->id,
@@ -180,7 +178,8 @@ class AuthController extends Controller
 
         // Eliminar archivo físico si existe
         if ($usuario->profile_image) {
-            $filePath = storage_path('app/public/' . $usuario->profile_image);
+            $normalizedPath = $this->normalizeStoragePath($usuario->profile_image);
+            $filePath = storage_path('app/public/' . $normalizedPath);
             if (file_exists($filePath)) {
                 unlink($filePath);
             }
@@ -217,7 +216,7 @@ class AuthController extends Controller
 
                 // Eliminar imagen anterior si existe
                 if ($usuario->profile_image) {
-                    Storage::disk('public')->delete($usuario->profile_image);
+                    Storage::disk('public')->delete($this->normalizeStoragePath($usuario->profile_image));
                 }
 
                 // Guardar nueva imagen
@@ -235,9 +234,7 @@ class AuthController extends Controller
                         'success' => true,
                         'message' => 'Imagen de perfil actualizada correctamente',
                         'usuario' => $usuario->fresh()->load('perfil'),
-                        'profile_image' => $usuario->profile_image
-                        ? asset('storage/' . $usuario->profile_image)
-                        : null
+                        'profile_image' => $this->resolveProfileImageUrl($usuario->profile_image)
                     ]);
                 }
             }
@@ -461,10 +458,53 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Perfil actualizado correctamente.',
             'perfil' => $perfil->getPerfilCompleto(),
-            'profile_image' => $usuario->profile_image
-            ? asset('storage/' . $usuario->profile_image)
-            : null
+            'profile_image' => $this->resolveProfileImageUrl($usuario->profile_image)
         ], 200);
+    }
+
+    /**
+     * Normaliza la ruta guardada para disco public.
+     */
+    private function normalizeStoragePath(?string $storedPath): ?string
+    {
+        if (!$storedPath) {
+            return null;
+        }
+
+        $path = trim($storedPath);
+
+        if (preg_match('#^https?://#i', $path)) {
+            $path = parse_url($path, PHP_URL_PATH) ?: '';
+        }
+
+        $path = preg_replace('#^/?storage/#', '', $path);
+
+        return ltrim($path, '/');
+    }
+
+    /**
+     * Genera URL pública robusta para la imagen de perfil.
+     */
+    private function resolveProfileImageUrl(?string $storedPath): ?string
+    {
+        if (!$storedPath) {
+            return null;
+        }
+
+        $raw = trim($storedPath);
+
+        if (preg_match('#^(https?://|data:image/)#i', $raw)) {
+            return $raw;
+        }
+
+        $normalized = $this->normalizeStoragePath($raw);
+        if (!$normalized) {
+            return null;
+        }
+
+        $url = Storage::disk('public')->url($normalized);
+
+        return preg_match('#^https?://#i', $url) ? $url : url($url);
     }
 
     // Logout de usuario

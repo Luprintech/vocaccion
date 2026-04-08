@@ -15,22 +15,21 @@ vi.mock('@/api', () => ({
     success: true,
     version: 2,
     session_id: 'session-1',
-    total_items: 34,
+    total_items: 72,
     current_index: 0,
-    phase: 'likert',
-    item: { id: 1, phase: 'likert', dimension: 'I', text_es: 'Me gusta investigar', context_es: 'Contexto' },
+    phase: 'activities',
+    item: { id: 1, phase: 'activities', dimension: 'I', text_es: 'Me gusta investigar', context_es: 'Contexto' },
   }),
   responderPregunta: vi.fn().mockResolvedValue({
     success: true,
-    current_index: 18,
-    phase: 'checklist',
-    phase_transition: 'checklist',
+    current_index: 30,
+    phase: 'competencies',
+    phase_transition: 'competencies',
     item: {
-      id: 19,
-      phase: 'checklist',
+      id: 31,
+      phase: 'competencies',
       dimension: 'S',
       text_es: 'Me interesa ayudar a otras personas',
-      options: [{ label: 'Escuchar' }],
     },
     test_complete: false,
   }),
@@ -60,7 +59,7 @@ describe('TestVocacional', () => {
     await user.click(screen.getByRole('button', { name: /siguiente/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/fase 2: actividades e intereses/i)).toBeInTheDocument();
+      expect(screen.getByText(/fase 2: competencias/i)).toBeInTheDocument();
     });
   });
 });

@@ -56,8 +56,8 @@ const beneficios = [
   },
   {
     icon: <Bot className="h-8 w-8 text-primary" />,
-    titulo: "Con IA",
-    texto: "Tecnología inteligente para guiarte mejor.",
+    titulo: "Modelo validado",
+    texto: "Basado en RIASEC (Holland), referencia internacional en orientación vocacional.",
     id: "beneficio-ia"
   }
 ];
@@ -94,13 +94,13 @@ const comoFunciona = [
   {
     icon: <Search className="h-6 w-6 text-primary" />,
     titulo: "Realiza el test",
-    descripcion: "Realiza nuestro test vocacional adaptativo con IA.",
+    descripcion: "Completa el test RIASEC por fases para detectar tu perfil vocacional dominante.",
     numero: "02"
   },
   {
     icon: <Target className="h-6 w-6 text-primary" />,
     titulo: "Recibe recomendaciones",
-    descripcion: "Recibe recomendaciones personalizadas de estudios y profesiones.",
+    descripcion: "Recibe profesiones y rutas formativas compatibles con tus resultados RIASEC.",
     numero: "03"
   },
   {
@@ -114,8 +114,8 @@ const comoFunciona = [
 const herramientas = [
   {
     icon: <Cpu className="h-8 w-8 text-primary" />,
-    titulo: "Test adaptativo con IA",
-    descripcion: "Test que evoluciona según tus respuestas para mayor precisión.",
+    titulo: "Evaluación RIASEC por fases",
+    descripcion: "Estructura en fases Likert, Checklist y Comparativa para una lectura más robusta del perfil.",
     id: "herramienta-ia"
   },
   {
@@ -182,7 +182,7 @@ const Servicios = () => {
           <div className="order-2 lg:order-1">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 backdrop-blur-sm border border-purple-200 text-purple-700 text-sm font-semibold mb-6 shadow-lg hover:shadow-xl transition-all duration-300 animate-float">
               <Sparkles className="h-4 w-4" />
-              Orientación vocacional con IA
+              Orientación vocacional con modelo RIASEC
             </div>
             <h2 className="text-4xl lg:text-5xl font-bold mb-8 leading-tight">
               <span className="bg-linear-to-r from-purple-600 to-green-600 bg-clip-text text-transparent">
@@ -193,7 +193,7 @@ const Servicios = () => {
             <Card className="bg-linear-to-br from-purple-50 to-green-50 border-l-4 border-purple-500 mb-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
               <CardContent className="p-6">
                 <p className="text-lg text-gray-700 leading-relaxed">
-                  VocAcción es una <span className="font-bold text-purple-700">aplicación web moderna potenciada con IA</span> que combina orientación vocacional, análisis inteligente y recursos educativos actualizados.
+                  VocAcción es una <span className="font-bold text-purple-700">plataforma de orientación vocacional basada en RIASEC</span> que combina evaluación psicométrica aplicada, matching profesional y recursos educativos actualizados.
                 </p>
               </CardContent>
             </Card>
@@ -204,7 +204,7 @@ const Servicios = () => {
                   <Target className="h-3 w-3 text-white" />
                 </div>
                 <p className="text-gray-700 group-hover:text-gray-900 transition-colors">
-                  Está diseñada para ayudarte a encontrar una ruta formativa o profesional que realmente conecte con tus <span className="font-bold text-purple-700">intereses, habilidades y valores</span>.
+                  Está diseñada para ayudarte a encontrar una ruta formativa o profesional que realmente conecte con tus <span className="font-bold text-purple-700">intereses vocacionales según RIASEC</span> y tu contexto personal.
                 </p>
               </div>
               
@@ -213,7 +213,7 @@ const Servicios = () => {
                   <Users className="h-3 w-3 text-white" />
                 </div>
                 <p className="text-gray-700 group-hover:text-gray-900 transition-colors">
-                  Tanto si estás en <span className="font-bold text-green-700">ESO o Bachillerato</span>, como si estás considerando un <span className="font-bold text-green-700">cambio profesional</span>, VocAcción te ofrece herramientas precisas.
+                  Tanto si estás en <span className="font-bold text-green-700">ESO o Bachillerato</span>, como si estás considerando un <span className="font-bold text-green-700">cambio profesional</span>, VocAcción te ofrece una base clara para decidir con criterio.
                 </p>
               </div>
             </div>
@@ -221,7 +221,7 @@ const Servicios = () => {
             <div className="flex flex-wrap gap-3">
               <div className="flex items-center gap-2 bg-white border-2 border-purple-200 px-4 py-2 rounded-xl shadow-md hover:shadow-lg hover:border-purple-400 transition-all duration-300 hover:scale-105 group cursor-default">
                 <Search className="h-4 w-4 text-purple-600 group-hover:text-purple-700" />
-                <span className="text-sm font-semibold text-gray-700">Herramientas precisas</span>
+                <span className="text-sm font-semibold text-gray-700">Perfil RIASEC claro</span>
               </div>
               <div className="flex items-center gap-2 bg-white border-2 border-green-200 px-4 py-2 rounded-xl shadow-md hover:shadow-lg hover:border-green-400 transition-all duration-300 hover:scale-105 group cursor-default">
                 <RefreshCw className="h-4 w-4 text-green-600 group-hover:text-green-700" />
@@ -229,7 +229,7 @@ const Servicios = () => {
               </div>
               <div className="flex items-center gap-2 bg-white border-2 border-purple-200 px-4 py-2 rounded-xl shadow-md hover:shadow-lg hover:border-purple-400 transition-all duration-300 hover:scale-105 group cursor-default">
                 <Zap className="h-4 w-4 text-purple-600 group-hover:text-purple-700" />
-                <span className="text-sm font-semibold text-gray-700">Potenciado por IA</span>
+                <span className="text-sm font-semibold text-gray-700">Informe personalizado</span>
               </div>
             </div>
           </div>

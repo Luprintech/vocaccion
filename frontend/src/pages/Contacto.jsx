@@ -61,20 +61,20 @@ const Contacto = () => {
   // Preguntas frecuentes
   const faqs = [
     {
-      pregunta: "¿Cómo funciona la orientación vocacional con IA de VocAcción?",
-      respuesta: "Nuestro sistema de IA analiza tus respuestas a un cuestionario detallado sobre tus intereses, habilidades, valores y preferencias. Basándose en algoritmos avanzados y una base de datos actualizada del mercado laboral, te proporciona recomendaciones personalizadas sobre carreras, estudios y rutas formativas que mejor se adapten a tu perfil único."
+      pregunta: "¿Qué es el modelo RIASEC y por qué lo usa VocAcción?",
+      respuesta: "RIASEC (Holland) clasifica los intereses vocacionales en seis dimensiones: Realista, Investigador, Artístico, Social, Emprendedor y Convencional. En VocAcción usamos este modelo porque permite traducir tus preferencias en recomendaciones profesionales y académicas más claras, comparables y útiles para tomar decisiones."
     },
     {
-      pregunta: "¿Cuánto tiempo toma completar el test vocacional?",
-      respuesta: "El test completo toma aproximadamente 15-20 minutos. Está diseñado para ser exhaustivo pero no tedioso. Puedes guardar tu progreso y continuar más tarde si necesitas un descanso. Una vez completado, recibirás tu informe personalizado de forma inmediata."
+      pregunta: "¿Cuánto tarda el test y puedo retomarlo después?",
+      respuesta: "Normalmente entre 10 y 15 minutos. El test está dividido por fases y puedes guardar tu progreso para continuar más tarde desde el mismo punto."
     },
     {
-      pregunta: "¿Los resultados son realmente precisos y confiables?",
-      respuesta: "Sí, nuestros algoritmos están basados en investigación psicométrica reconocida y se actualizan continuamente con datos del mercado laboral actual. Sin embargo, los resultados deben considerarse como una guía orientativa muy valiosa, no como una decisión definitiva. Recomendamos complementar los resultados con nuestras sesiones de orientación personalizada."
+      pregunta: "¿Qué obtengo al completar el test RIASEC?",
+      respuesta: "Obtienes tu perfil vocacional con las dimensiones RIASEC dominantes, profesiones compatibles del catálogo real y orientaciones de formación para avanzar con un plan concreto."
     },
     {
       pregunta: "¿Qué diferencia hay entre el plan gratuito y los planes premium?",
-      respuesta: "El plan gratuito incluye acceso al test básico y recursos generales. Los planes premium ofrecen tests más detallados, informes personalizados en profundidad, sesiones de orientación con expertos, seguimiento continuo, acceso a recursos exclusivos y actualizaciones periódicas de tu perfil vocacional según evolucione el mercado laboral."
+      respuesta: "El plan gratuito incluye test RIASEC y resultados esenciales. Los planes premium añaden itinerario formativo, recursos ampliados y acompañamiento con orientador para convertir el resultado en un plan de acción real."
     }
   ];
 

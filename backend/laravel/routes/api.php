@@ -105,6 +105,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // V2: Curated bank flow
         Route::post('/responder', [TestController::class, 'responder']); // V2: Store response and return next item
         Route::post('/anterior', [TestController::class, 'anterior']); // V2: Go back to previous item
+        Route::get('/occupation-images/{sessionId}', [TestController::class, 'occupationImages']); // V2: Preload occupation images
         
         // V1: Legacy adaptive flow
         Route::post('/siguiente-pregunta', [TestController::class, 'siguientePregunta']); // V1: Genera siguiente pregunta

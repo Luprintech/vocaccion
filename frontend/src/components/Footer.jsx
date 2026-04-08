@@ -89,6 +89,12 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
+                <Link to="/acerca-de" onClick={scrollToTop} className="text-gray-600 hover:text-purple-600 transition-colors text-sm flex items-center gap-2 group">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 group-hover:scale-150 transition-transform"></span>
+                  Acerca de VocAcción
+                </Link>
+              </li>
+              <li>
                 <Link to="/contacto" onClick={scrollToTop} className="text-gray-600 hover:text-purple-600 transition-colors text-sm flex items-center gap-2 group">
                   <span className="w-1.5 h-1.5 rounded-full bg-purple-400 group-hover:scale-150 transition-transform"></span>
                   Contacto

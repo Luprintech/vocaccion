@@ -26,6 +26,7 @@ import DashboardLayout from "./layouts/DashboardLayout.jsx";
 import Servicios from "./pages/Servicios.jsx";
 import Planes from "./pages/Planes.jsx";
 import Contacto from "./pages/Contacto.jsx";
+import AcercaDe from "./pages/AcercaDe.jsx";
 import Testimonios from "./pages/Testimonios.jsx"; // Import Testimonios
 
 // Páginas de recursos organizadas
@@ -162,6 +163,7 @@ function App() {
           <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
           <Route path="/mi-suscripcion" element={<ProtectedRoute><MySubscription /></ProtectedRoute>} />
           <Route path="/contacto" element={<Contacto />} />
+          <Route path="/acerca-de" element={<AcercaDe />} />
 
           {/* Reservas para estudiantes Pro Plus */}
           <Route path="/reservar" element={<ProtectedRoute requiredPlan="pro_plus"><ReservarSesion /></ProtectedRoute>} />

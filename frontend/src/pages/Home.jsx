@@ -46,18 +46,18 @@ import TestimonialCard from "../components/TestimonialCard";
 const features = [
   {
     icon: Bot,
-    title: "Test vocacional dinámico con IA",
+    title: "Test vocacional RIASEC",
     description:
-      "Realiza un test interactivo que se adapta a tu perfil, generando preguntas relevantes según tu nivel educativo e intereses.",
+      "Realiza una evaluación basada en el modelo Holland RIASEC para identificar tus intereses profesionales dominantes de forma clara y estructurada.",
     id: "feature-test",
     color: "purple",
     gradient: "from-purple-500 to-purple-600",
   },
   {
     icon: BrainCircuit,
-    title: "Recomendaciones generadas por IA",
+    title: "Informe profesional con contexto real",
     description:
-      "Recibe un informe vocacional personalizado que analiza tus respuestas y te sugiere caminos formativos y profesionales.",
+      "Obtén un informe vocacional que combina tus resultados RIASEC con profesiones reales del catálogo y sugerencias formativas accionables.",
     id: "feature-recommendations",
     color: "green",
     gradient: "from-green-500 to-green-600",
@@ -66,7 +66,7 @@ const features = [
     icon: Search,
     title: "Explora el mundo laboral",
     description:
-      "Accede a información actual sobre sectores con alta empleabilidad, profesiones emergentes y estudios demandados en España.",
+      "Explora profesiones reales (CNO/ESCO), sectores con demanda y caminos académicos para tomar decisiones con mejor información.",
     id: "feature-explore",
     color: "purple",
     gradient: "from-purple-600 to-purple-700",
@@ -111,6 +111,8 @@ const testimonials = [
 
 export default function Home() {
   const { isAuthenticated, user } = useAuth();
+  const heroImage = "/images/home/orientación + portátil.jpg";
+  const riasecImage = "/images/home/riasec.png";
   const [reviews, setReviews] = useState(testimonials);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reviewForm, setReviewForm] = useState({ mensaje: "", edad: "" });
@@ -158,7 +160,7 @@ export default function Home() {
   return (
     <div className="flex flex-col overflow-hidden">
       {/* SECCIÓN HERO - Primer impacto visual con título y CTA principal */}
-      <section className="relative w-full py-20 md:py-32 lg:py-40 text-center overflow-hidden" style={{ paddingTop: '50px', paddingBottom: '50px' }}>
+      <section className="relative w-full py-12 md:py-16 lg:py-20 overflow-hidden" style={{ paddingTop: '50px', paddingBottom: '50px' }}>
         {/* Fondo con gradiente animado */}
         <div className="absolute inset-0 bg-linear-to-br from-purple-50 via-white to-green-50"></div>
         
@@ -169,62 +171,123 @@ export default function Home() {
         
         {/* Contenido principal */}
         <div className="relative container mx-auto px-4">
-          {/* Badge superior */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-lg border border-purple-100 mb-8 animate-float">
-            <Sparkles className="w-4 h-4 text-purple-600" />
-            <span className="text-sm font-semibold bg-linear-to-r from-purple-600 to-green-600 bg-clip-text text-transparent">
-              Plataforma líder en orientación vocacional
-            </span>
+          <div className="grid lg:grid-cols-2 gap-10 items-center">
+            <div className="text-center lg:text-left">
+              {/* Badge superior */}
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-lg border border-purple-100 mb-6 animate-float">
+                <Sparkles className="w-4 h-4 text-purple-600" />
+                <span className="text-sm font-semibold bg-linear-to-r from-purple-600 to-green-600 bg-clip-text text-transparent">
+                  Orientación vocacional basada en RIASEC
+                </span>
+              </div>
+
+              {/* Título principal con gradiente */}
+              <h1 className="font-bold text-4xl sm:text-5xl md:text-6xl leading-tight">
+                <span className="bg-linear-to-r from-purple-600 via-purple-700 to-green-600 bg-clip-text text-transparent animate-gradientShift">
+                  Descubre tu vocación.
+                </span>
+                <br />
+                <span className="text-gray-800 mt-2 block">
+                  Diseña tu futuro.
+                </span>
+              </h1>
+
+              <p className="mt-6 max-w-2xl text-lg md:text-xl text-gray-600 leading-relaxed mx-auto lg:mx-0">
+                VocAcción te guía paso a paso para que descubras qué estudios o profesiones encajan contigo,
+                combinando test RIASEC, informe personalizado y recursos reales de orientación.
+              </p>
+
+              <div className="mt-5 flex flex-wrap gap-2 justify-center lg:justify-start">
+                {['Modelo RIASEC', 'Guarda y retoma', 'Informe profesional'].map((chip) => (
+                  <span key={chip} className="px-3 py-1.5 rounded-full bg-white border border-purple-100 text-xs font-semibold text-purple-700 shadow-sm">
+                    {chip}
+                  </span>
+                ))}
+              </div>
+
+              {/* Botones de CTA */}
+              <div className="mt-8 flex flex-col sm:flex-row items-center lg:items-start gap-4">
+                <Button
+                  size="lg"
+                  className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300 px-8 py-6 text-base font-semibold group"
+                  asChild
+                >
+                  <Link to="/testintro" className="flex items-center gap-2">
+                    <Target className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                    Comienza tu camino – Test gratuito
+                  </Link>
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-2 border-green-500 text-green-700 hover:bg-green-50 hover:border-green-600 shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 px-8 py-6 text-base font-semibold"
+                  asChild
+                >
+                  <Link to="/recursos">
+                    Explorar recursos
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            <div className="relative">
+              <div className="absolute -inset-3 bg-gradient-to-br from-purple-300/40 to-green-300/40 blur-2xl rounded-3xl"></div>
+              <div className="relative rounded-3xl overflow-hidden border border-purple-100 shadow-2xl bg-white">
+                <img
+                  src={heroImage}
+                  alt="Orientación vocacional con portátil"
+                  className="w-full h-[320px] md:h-[420px] object-cover object-center"
+                  fetchPriority="high"
+                />
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
 
-          {/* Título principal con gradiente */}
-          <h1 className="font-bold text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-tight">
-            <span className="bg-linear-to-r from-purple-600 via-purple-700 to-green-600 bg-clip-text text-transparent animate-gradientShift">
-              Descubre tu vocación.
-            </span>
-            <br />
-            <span className="text-gray-800 mt-2 block">
-              Diseña tu futuro.
-            </span>
-          </h1>
+      {/* SECCIÓN RIASEC - Explicación visual del modelo */}
+      <section className="w-full py-14 md:py-16 bg-white border-y border-purple-100">
+        <div className="container mx-auto px-4">
+          <div className="grid lg:grid-cols-2 gap-10 items-center">
+            <div className="order-1 lg:order-1">
+              <div className="group relative w-full max-w-[360px] md:max-w-[420px] aspect-square mx-auto rounded-3xl overflow-hidden border border-purple-100 shadow-xl bg-white">
+                <img
+                  src={riasecImage}
+                  alt="Modelo RIASEC de orientación vocacional"
+                  className="w-full h-full object-contain object-center p-2 md:p-3 transition-transform duration-500 ease-out group-hover:scale-105"
+                  loading="lazy"
+                />
+              </div>
+            </div>
 
-          {/* Subtítulo */}
-          <p className="mx-auto mt-8 max-w-2xl text-lg md:text-xl text-gray-600 leading-relaxed">
-            VocAcción es tu plataforma de orientación vocacional personalizada. 
-            <span className="font-semibold text-purple-700"> Te guía paso a paso </span> 
-            para que descubras qué estudios o profesiones encajan contigo.
-          </p>
+            <div className="order-2 lg:order-2">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-700 font-semibold text-sm mb-5">
+                <Sparkles className="w-4 h-4" />
+                ¿Qué es el modelo RIASEC?
+              </div>
 
-          {/* Botones de CTA */}
-          <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button 
-              size="lg" 
-              className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300 px-8 py-6 text-base font-semibold group"
-              asChild
-            >
-              <Link to="/testintro" className="flex items-center gap-2">
-                <Target className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-                Comienza tu camino – Test gratuito
-              </Link>
-            </Button>
-            <Button 
-              size="lg" 
-              variant="outline"
-              className="border-2 border-green-500 text-green-700 hover:bg-green-50 hover:border-green-600 shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 px-8 py-6 text-base font-semibold"
-              asChild
-            >
-              <Link to="/recursos">
-                Explorar recursos
-              </Link>
-            </Button>
-          </div>
+              <h2 className="text-3xl md:text-4xl font-bold leading-tight mb-4 text-gray-900">
+                Un marco claro para descubrir
+                <span className="bg-linear-to-r from-purple-600 to-green-600 bg-clip-text text-transparent"> cómo encajas profesionalmente</span>
+              </h2>
 
-          {/* Iconos flotantes decorativos */}
-          <div className="absolute top-10 left-10 md:left-20 opacity-10 animate-float animation-delay-1000 hidden md:block">
-            <Lightbulb className="w-12 h-12 md:w-16 md:h-16 text-purple-500" />
-          </div>
-          <div className="absolute bottom-10 right-10 md:right-20 opacity-10 animate-float animation-delay-3000 hidden md:block">
-            <GraduationCap className="w-16 h-16 md:w-20 md:h-20 text-green-500" />
+              <p className="text-gray-600 text-base md:text-lg leading-relaxed mb-5">
+                RIASEC analiza tus intereses en seis dimensiones (Realista, Investigador, Artístico, Social,
+                Emprendedor y Convencional) y los conecta con profesiones y rutas formativas reales.
+              </p>
+
+              <div className="flex flex-wrap gap-2 mb-6">
+                {["R · Realista", "I · Investigador", "A · Artístico", "S · Social", "E · Emprendedor", "C · Convencional"].map((item) => (
+                  <span key={item} className="px-3 py-1.5 rounded-full bg-gray-50 border border-gray-200 text-xs md:text-sm font-semibold text-gray-700">
+                    {item}
+                  </span>
+                ))}
+              </div>
+
+              <Button asChild className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-lg">
+                <Link to="/testintro">Ver mi perfil RIASEC</Link>
+              </Button>
+            </div>
           </div>
         </div>
       </section>

@@ -52,9 +52,10 @@ class GeminiService
     /**
      * PROMPT 1: BATCH ANALYZER
      * Analiza un bloque de respuestas para actualizar scores RIASEC y Skills.
-     * 
-     * @deprecated v2 uses deterministic scoring via RiasecScoreCalculatorService.
-     *             Kept for v1 session compatibility only.
+     *
+     * @deprecated Since V2 (2025-04). V2 uses deterministic scoring via RiasecScoreCalculatorService.
+     *             This method is ONLY retained for V1 legacy session compatibility (test_sessions table).
+     *             DO NOT use in new code. Will be removed once V1 sessions are fully migrated.
      */
     public function analyzeBatch(array $recentHistory): array
     {
@@ -100,8 +101,9 @@ EOT;
      *                                         When null, falls back to generic exploration prompt
      *                                         (legacy / warm-up / test-mock path — no change).
      * 
-     * @deprecated v2 uses curated question_bank with no runtime question generation.
-     *             Kept for v1 session compatibility only.
+     * @deprecated Since V2 (2025-04). V2 uses curated question_bank items — no runtime AI generation.
+     *             This method is ONLY retained for V1 legacy session compatibility (VocationalSession v=1).
+     *             DO NOT use in new code. Will be removed once V1 sessions are fully migrated.
      */
     public function generateQuestion(array $context, ?QuestionStrategy $strategy = null): array
     {
@@ -175,12 +177,12 @@ EOT;
 
     /**
      * PROMPT 2C: ITEM PERSONALIZATION (V2)
-     * Select and order 34 items from the question bank based on user profile context.
+     * Select and order items from the question bank based on user profile context.
      * Called ONCE at test start. Falls back to default order on failure.
      *
      * @param array $bankItems  Array of items from question_bank: [{id, phase, dimension, text_es, age_group}, ...]
      * @param array $profile    User profile context: {age_group, bio, hobbies, education, job}
-     * @return array Ordered array of 34 item IDs, or empty array on failure (caller should use default order)
+     * @return array Ordered array of item IDs, or empty array on failure (caller should use default order)
      */
     public function personalizeItemSelection(array $bankItems, array $profile): array
     {
@@ -210,10 +212,10 @@ ACTÚA COMO: Psicólogo experto en evaluación vocacional con el modelo RIASEC (
 OBJETIVO: Personalizar la selección y orden de preguntas del test vocacional basándote en el perfil del usuario.
 
 CONTEXTO:
-- Recibirás un banco de preguntas (~102 items) organizadas en 3 fases: Likert (18), Checklist (10), Comparative (6).
-- Debes seleccionar EXACTAMENTE 34 items (18 Likert + 10 Checklist + 6 Comparative) y ordenarlas de forma que:
+- Recibirás un banco de preguntas organizadas en 4 fases: Activities (30), Competencies (18), Occupations (18), Comparative (6).
+- Debes ordenar EXACTAMENTE 72 items (30 + 18 + 18 + 6) y devolver sus IDs en el orden deseado.
   1. Las primeras preguntas sean las MÁS relevantes para el perfil del usuario (basándote en su bio, hobbies, formación, trabajo).
-  2. Se mantenga la proporción por fase (18/10/6).
+  2. Se mantenga la proporción por fase (30/18/18/6).
   3. Se cubran las 6 dimensiones RIASEC (R, I, A, S, E, C) de forma balanceada dentro de cada fase.
   4. El orden de fases se respete: primero todos los Likert, luego Checklist, luego Comparative.
 
@@ -225,15 +227,15 @@ REGLAS:
 5. Si mencionan trabajo con personas/social, prioriza S (Social).
 6. Si mencionan liderazgo/emprendimiento, prioriza E (Enterprising).
 7. Si mencionan organización/administración, prioriza C (Conventional).
-8. Mantén diversidad — NO agrupes todas las preguntas de una dimensión al principio.
+  8. Mantén diversidad — NO agrupes todas las preguntas de una dimensión al principio.
 
 SALIDA ESPERADA (JSON STRICT):
 {
-  "selected_item_ids": [id1, id2, id3, ..., id34],
+  "selected_item_ids": [id1, id2, id3, ..., id72],
   "reasoning": "Breve explicación de la estrategia de ordenamiento (max 100 palabras)"
 }
 
-IMPORTANTE: La salida DEBE tener exactamente 34 IDs, en el orden deseado, respetando las proporciones por fase.
+IMPORTANTE: La salida DEBE tener exactamente 72 IDs, en el orden deseado, respetando las proporciones por fase.
 EOT;
 
         $prompt = <<<EOT
@@ -243,17 +245,17 @@ PERFIL DEL USUARIO:
 BANCO DE PREGUNTAS DISPONIBLES:
 {$bankJson}
 
-Selecciona y ordena 34 items optimizando para el perfil del usuario.
+Selecciona y ordena 72 items optimizando para el perfil del usuario.
 EOT;
 
         try {
-            $response = $this->callGemini($prompt, true, $systemInstruction, 0.7, 2048);
+            $response = $this->callGemini($prompt, true, $systemInstruction, 2048);
             
             if (isset($response['selected_item_ids']) && is_array($response['selected_item_ids'])) {
                 $itemIds = $response['selected_item_ids'];
                 
                 // Validate count
-                if (count($itemIds) === 34) {
+                if (count($itemIds) === 72) {
                     Log::info('[GeminiService] Personalized item selection', [
                         'reasoning' => $response['reasoning'] ?? 'No reasoning provided',
                         'first_5_ids' => array_slice($itemIds, 0, 5),
@@ -261,7 +263,7 @@ EOT;
                     return $itemIds;
                 } else {
                     Log::warning('[GeminiService] Invalid item count from personalization', [
-                        'expected' => 34,
+                        'expected' => 72,
                         'received' => count($itemIds),
                     ]);
                     return []; // Fallback to default order
@@ -302,8 +304,12 @@ EOT;
      * Genera el informe RIASEC completo en Markdown.
      * Si el perfil tiene _raw_history, usa las respuestas directas del usuario
      * para inferir su perfil vocacional sin depender de los scores del motor.
+     *
+     * @param  array   $profileData    RIASEC scores + optional _user_context and _raw_history.
+     * @param  array   $matchedCareers Pre-selected careers from CareerMatchingService.
+     * @param  string  $userName       Optional user first name for personalized narrative.
      */
-    public function generateReport(array $profileData, array $matchedCareers = []): string
+    public function generateReport(array $profileData, array $matchedCareers = [], string $userName = ''): string
     {
         // Construir bloque de scores RIASEC si existen
         $riasecBlock = '';
@@ -405,9 +411,25 @@ REGLAS CRÍTICAS:
 - El informe debe sentirse PERSONALIZADO, no genérico.
 EOT;
 
-        $prompt = "PERFIL DEL USUARIO:{$riasecBlock}{$historyBlock}";
+        // Build user context block (name + optional _user_context from profile)
+        $userContextBlock = '';
+        if (!empty($userName)) {
+            $userContextBlock .= "\nNombre del usuario: {$userName}";
+        }
+        if (!empty($profileData['_user_context'])) {
+            $ctx = $profileData['_user_context'];
+            if (!empty($ctx['bio']))      $userContextBlock .= "\nDescripción personal: {$ctx['bio']}";
+            if (!empty($ctx['hobbies']))  $userContextBlock .= "\nIntereses y hobbies: {$ctx['hobbies']}";
+            if (!empty($ctx['education'])) $userContextBlock .= "\nFormación: {$ctx['education']}";
+            if (!empty($ctx['job']))      $userContextBlock .= "\nExperiencia laboral: {$ctx['job']}";
+        }
+
+        $prompt = "PERFIL DEL USUARIO:{$riasecBlock}{$historyBlock}{$userContextBlock}";
         if (empty($riasecBlock) && empty($historyBlock)) {
             $prompt = "Genera un informe vocacional completo para un usuario que acaba de responder un test vocacional adaptativo.";
+            if (!empty($userContextBlock)) {
+                $prompt .= "\n\nCONTEXTO DEL USUARIO:{$userContextBlock}";
+            }
         }
 
         // Inyectar profesiones pre-seleccionadas del catálogo
@@ -428,10 +450,61 @@ EOT;
     }
 
     /**
-     * PROMPT 4: CAREER RECOMMENDATIONS (DEPRECADO - ahora usa CareerMatchingService)
+     * Genera SOLO narrativa breve para enriquecer el informe híbrido.
+     * La interpretación base y cálculos RIASEC se mantienen determinísticos.
      *
-     * Mantenido por compatibilidad con el flujo legacy (TestSesion).
-     * Para el flujo moderno, las profesiones vienen del catálogo vía CareerMatchingService.
+     * @return array{portrait?:string, mentor?:string, superpowers?:array<int,array{name:string,why:string,how:string}>}
+     */
+    public function generateNarrativeSections(array $profileData, string $riasecCode = '', string $userName = ''): array
+    {
+        $scores = [
+            'R' => (float) ($profileData['realistic_score'] ?? 0),
+            'I' => (float) ($profileData['investigative_score'] ?? 0),
+            'A' => (float) ($profileData['artistic_score'] ?? 0),
+            'S' => (float) ($profileData['social_score'] ?? 0),
+            'E' => (float) ($profileData['enterprising_score'] ?? 0),
+            'C' => (float) ($profileData['conventional_score'] ?? 0),
+        ];
+
+        $prompt = "Datos RIASEC: " . json_encode([
+            'riasec_code' => $riasecCode,
+            'scores' => $scores,
+            'user_name' => $userName,
+            'context' => $profileData['_user_context'] ?? null,
+        ], JSON_UNESCAPED_UNICODE);
+
+        $systemInstruction = <<<'EOT'
+ACTÚA COMO: Orientador vocacional experto en RIASEC.
+OBJETIVO: Generar SOLO narrativa breve para un informe híbrido (los cálculos ya vienen hechos).
+
+Devuelve JSON estricto con esta estructura:
+{
+  "portrait": "Párrafo de 90-130 palabras, personalizado, tono profesional y motivador.",
+  "superpowers": [
+    {"name":"...","why":"...","how":"..."},
+    {"name":"...","why":"...","how":"..."},
+    {"name":"...","why":"...","how":"..."},
+    {"name":"...","why":"...","how":"..."},
+    {"name":"...","why":"...","how":"..."}
+  ],
+  "mentor": "Párrafo final de 45-70 palabras."
+}
+
+REGLAS:
+- NO inventes profesiones ni porcentajes.
+- Mantén superpowers en exactamente 5 elementos.
+- Frases claras, sin markdown, sin texto fuera del JSON.
+EOT;
+
+        return $this->callGemini($prompt, true, $systemInstruction, 1400);
+    }
+
+    /**
+     * PROMPT 4: CAREER RECOMMENDATIONS
+     *
+     * @deprecated Since V2 (2025-04). Modern flow uses CareerMatchingService for catalog-based matching.
+     *             Retained for legacy TestSesion compatibility only.
+     *             DO NOT use in new code. Will be removed once V1 sessions are fully migrated.
      */
     public function generateCareerRecommendations(array $profileData, string $reportMarkdown = ''): array
     {

@@ -1,119 +1,111 @@
 import React from 'react';
+import { Wrench, FlaskConical, Palette, Handshake, Rocket, ClipboardList, Check, MoveHorizontal } from 'lucide-react';
 
 /**
- * ComparativeScale - Paired comparison component for v2 test
- * Compares two RIASEC dimensions with a -1, 0, 1 scale
- * 
- * @param {Object} props
- * @param {Object} props.item - Question item with dimension and dimension_b
- * @param {number|null} props.value - Current selected value (-1, 0, 1)
- * @param {Function} props.onChange - Callback when value changes
- * @param {boolean} props.disabled - Whether the scale is disabled
+ * ComparativeScale - Visual paired-comparison cards for the comparative phase.
+ * Each RIASEC dimension gets its own color, emoji, and tagline.
+ *
+ * @param {Object}      props
+ * @param {Object}      props.item     - Item with dimension and dimension_b
+ * @param {number|null} props.value    - Current value: -1 (prefer B), 0 (both), 1 (prefer A)
+ * @param {Function}    props.onChange - Callback
+ * @param {boolean}     props.disabled
  */
+const DIM_META = {
+  R: { label: 'Realista',       icon: Wrench,        tagline: 'Hacer cosas concretas',   bg: '#fff7ed', border: '#fdba74', text: '#c2410c', pill: 'bg-orange-100 text-orange-700' },
+  I: { label: 'Investigador',   icon: FlaskConical,  tagline: 'Analizar y descubrir',    bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8', pill: 'bg-blue-100 text-blue-700' },
+  A: { label: 'Artístico',      icon: Palette,       tagline: 'Crear y expresar',        bg: '#fdf2f8', border: '#f9a8d4', text: '#be185d', pill: 'bg-pink-100 text-pink-700' },
+  S: { label: 'Social',         icon: Handshake,     tagline: 'Ayudar a las personas',   bg: '#f0fdf4', border: '#86efac', text: '#15803d', pill: 'bg-green-100 text-green-700' },
+  E: { label: 'Emprendedor',    icon: Rocket,        tagline: 'Liderar y convencer',     bg: '#faf5ff', border: '#c4b5fd', text: '#7e22ce', pill: 'bg-purple-100 text-purple-700' },
+  C: { label: 'Convencional',   icon: ClipboardList, tagline: 'Organizar y estructurar', bg: '#fefce8', border: '#fde047', text: '#a16207', pill: 'bg-yellow-100 text-yellow-700' },
+};
+
 const ComparativeScale = ({ item, value, onChange, disabled = false }) => {
-  const dimensionLabels = {
-    R: 'Realista',
-    I: 'Investigador',
-    A: 'Artístico',
-    S: 'Social',
-    E: 'Emprendedor',
-    C: 'Convencional'
-  };
+  const dimA = item.dimension;
+  const dimB = item.dimension_b;
+  const metaA = DIM_META[dimA] ?? {};
+  const metaB = DIM_META[dimB] ?? {};
 
-  const dimensionA = item.dimension;
-  const dimensionB = item.dimension_b;
+  const handleSelect = (v) => { if (!disabled) onChange(v); };
 
-  const options = [
-    { value: -1, label: `Prefiero ${dimensionLabels[dimensionB]}`, icon: '←' },
-    { value: 0, label: 'Ambas por igual', icon: '↔' },
-    { value: 1, label: `Prefiero ${dimensionLabels[dimensionA]}`, icon: '→' }
-  ];
-
-  const handleSelect = (selectedValue) => {
-    if (!disabled) {
-      onChange(selectedValue);
-    }
+  // ── Dimension card ─────────────────────────────────────────────────────────
+  const DimCard = ({ meta, selValue, currentValue }) => {
+    const selected = currentValue === selValue;
+    const Icon = meta.icon;
+    return (
+      <button
+        onClick={() => handleSelect(selValue)}
+        disabled={disabled}
+        className={`
+          w-full min-h-[130px] md:min-h-[150px] rounded-2xl border-2 transition-all duration-200 p-4
+          flex flex-col items-center justify-center gap-2 text-center
+          ${selected
+            ? 'shadow-lg -translate-y-1 scale-[1.02]'
+            : 'bg-white border-gray-200 hover:scale-[1.01]'
+          }
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        `}
+        style={selected ? { background: meta.bg, borderColor: meta.border } : {}}
+      >
+        {Icon && <Icon className="w-8 h-8" style={selected ? { color: meta.text } : { color: '#4b5563' }} />}
+        <div>
+          <p className={`font-bold text-sm md:text-base leading-snug ${selected ? '' : 'text-gray-800'}`}
+             style={selected ? { color: meta.text } : {}}>
+            {meta.label}
+          </p>
+          <p className={`text-xs leading-snug mt-0.5 ${selected ? 'opacity-80' : 'text-gray-500'}`}
+             style={selected ? { color: meta.text } : {}}>
+            {meta.tagline}
+          </p>
+        </div>
+        <div
+          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center`}
+          style={selected ? { borderColor: meta.border, background: meta.border } : { borderColor: '#d1d5db' }}
+        >
+          {selected && (
+            <Check className="w-3 h-3 text-white" />
+          )}
+        </div>
+      </button>
+    );
   };
 
   return (
-    <div className="comparative-scale-container">
+    <div className="w-full h-full flex flex-col gap-3">
       {/* Question text */}
-      <div className="mb-3">
-        <h3 className="text-base md:text-lg font-semibold text-gray-800 mb-2 leading-snug">
+      <div>
+        <h3 className="text-base md:text-lg font-semibold text-gray-800 mb-1 leading-snug">
           {item.text_es}
         </h3>
-        {item.context_es && (
-          <p className="text-xs md:text-sm text-gray-500 italic mb-2 leading-snug line-clamp-2">
-            {item.context_es}
-          </p>
-        )}
-        <p className="text-xs md:text-sm text-purple-600 font-medium">
-          Elige cuál de estas opciones te representa mejor
+        <p className="text-xs text-purple-600 font-medium">
+          ¿Cuál de estas dos orientaciones te representa más?
         </p>
       </div>
 
-      {/* Dimension comparison header */}
-      <div className="mb-3 p-2.5 bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl border border-purple-200">
-        <div className="flex items-center justify-between">
-          <div className="text-center flex-1">
-            <div className="text-xl font-bold text-purple-600">{dimensionB}</div>
-            <div className="text-xs md:text-sm text-gray-700 mt-1">{dimensionLabels[dimensionB]}</div>
-          </div>
-          <div className="px-3 text-xl text-gray-400">vs</div>
-          <div className="text-center flex-1">
-            <div className="text-xl font-bold text-blue-600">{dimensionA}</div>
-            <div className="text-xs md:text-sm text-gray-700 mt-1">{dimensionLabels[dimensionA]}</div>
-          </div>
-        </div>
+      {/* Two dimension cards + "both" in the middle */}
+      <div className="grid grid-cols-2 gap-3">
+        <DimCard meta={metaB} selValue={-1} currentValue={value} />
+        <DimCard meta={metaA} selValue={1}  currentValue={value} />
       </div>
 
-      {/* Comparison options */}
-      <div className="space-y-1.5">
-        {options.map((option) => (
-          <button
-            key={option.value}
-            onClick={() => handleSelect(option.value)}
-            disabled={disabled}
-            className={`
-              w-full px-3 py-2.5 rounded-xl border-2 transition-all duration-200
-              ${value === option.value
-                ? 'border-purple-500 bg-purple-50 shadow-lg scale-105'
-                : 'border-gray-300 bg-white hover:border-purple-300 hover:bg-purple-50'
-              }
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-              flex items-center justify-between
-            `}
-          >
-            <span className="text-xl">{option.icon}</span>
-            <span className="text-center flex-1 font-medium text-gray-800 text-sm leading-snug px-2">
-              {option.label}
-            </span>
-            <div className={`
-              w-5 h-5 rounded-full border-2 flex items-center justify-center
-              ${value === option.value
-                ? 'border-purple-500 bg-purple-500'
-                : 'border-gray-400'
-              }
-            `}>
-              {value === option.value && (
-                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {/* Help text */}
-      <div className="mt-3 pt-2 border-t border-gray-100">
-        <div className="bg-gray-50 rounded-lg p-2.5">
-          <p className="text-[11px] md:text-xs text-gray-600 leading-snug">
-            💡 <strong>Tip:</strong> No hay respuestas correctas o incorrectas. 
-            Elige la opción que mejor refleje tus preferencias personales o intereses.
-          </p>
-        </div>
-      </div>
+      {/* Both equally */}
+      <button
+        onClick={() => handleSelect(0)}
+        disabled={disabled}
+        className={`
+          w-full py-2.5 rounded-xl border-2 transition-all duration-200 text-sm font-medium
+          ${value === 0
+            ? 'border-gray-400 bg-gray-100 text-gray-800 shadow-sm'
+            : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:bg-gray-50'
+          }
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+        `}
+      >
+        <span className="inline-flex items-center justify-center gap-2">
+          <MoveHorizontal className="w-4 h-4" />
+          <span>Ambas me representan por igual</span>
+        </span>
+      </button>
     </div>
   );
 };

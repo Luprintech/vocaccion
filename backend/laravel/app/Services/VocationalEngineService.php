@@ -9,6 +9,8 @@ use App\Models\QuestionBank;
 use App\Models\VocationalSession;
 use App\Models\VocationalProfile;
 use App\Models\Perfil;
+use App\Services\RiasecTestConfig;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class VocationalEngineService
@@ -362,7 +364,7 @@ class VocationalEngineService
      *
      * @param int    $usuarioId     User ID
      * @param string $ageGroup      One of: teen, young_adult, adult
-     * @return array {session_id: uuid, total_items: 34, current_index: 0, phase: 'likert', item: {...}}
+     * @return array {session_id: uuid, total_items: 72, current_index: 0, phase: 'activities', item: {...}}
      */
     public function startSessionV2(int $usuarioId, string $ageGroup): array
     {
@@ -372,29 +374,31 @@ class VocationalEngineService
             ->ordered()
             ->get();
 
-        if ($bankItems->count() < 34) {
-            throw new \Exception("Insufficient question bank items for age group: {$ageGroup}");
+        // 2. Validate item set
+        $validation = RiasecTestConfig::validateItemSet($bankItems, $ageGroup);
+        if (!$validation['valid']) {
+            throw new \Exception("Invalid question bank for age group {$ageGroup}: " . implode(', ', $validation['errors']));
         }
 
-        // 2. Get user profile context for personalization
+        // 3. Get user profile context for personalization
         $perfil = Perfil::with(['intereses', 'formaciones', 'experiencias'])->where('usuario_id', $usuarioId)->first();
         $profileContext = $this->buildProfileContext($perfil, $ageGroup);
 
-        // 3. Personalize item selection via Gemini (fallback to default order)
+        // 4. Personalize item selection via Gemini (fallback to default order)
         $selectedItemIds = $this->personalizeItemOrder($bankItems, $profileContext);
 
-        // 4. Create session
+        // 5. Create session
         $session = VocationalSession::create([
             'usuario_id' => $usuarioId,
             'version' => 2,
             'age_group' => $ageGroup,
             'selected_items' => $selectedItemIds,
-            'phase' => 'likert',
+            'phase' => 'activities',
             'current_index' => 0,
             'is_completed' => false,
         ]);
 
-        // 5. Get first item
+        // 6. Get first item
         $firstItem = $this->getItemAtIndex($session, 0);
 
         return [
@@ -402,8 +406,9 @@ class VocationalEngineService
             'version' => 2,
             'total_items' => count($selectedItemIds),
             'current_index' => 0,
-            'phase' => 'likert',
+            'phase' => 'activities',
             'item' => $firstItem,
+            'progress' => RiasecTestConfig::getProgress(0),
         ];
     }
 
@@ -411,7 +416,7 @@ class VocationalEngineService
      * Get the next item for a V2 session.
      *
      * @param VocationalSession $session
-     * @return array|null {item: {...}, phase: 'likert', current_index: 5, phase_transition?: 'checklist'}
+     * @return array|null {item: {...}, phase: 'activities', current_index: 5, phase_transition?: 'competencies'}
      */
     public function getNextItemV2(VocationalSession $session): ?array
     {
@@ -431,33 +436,37 @@ class VocationalEngineService
         // Get current item
         $item = $this->getItemAtIndex($session, $currentIndex);
 
-        // Detect phase transitions (18 likert → 10 checklist → 6 comparative)
-        $phaseTransition = null;
-        if ($currentIndex === 18) {
-            $phaseTransition = 'checklist';
-            $session->update(['phase' => 'checklist']);
-        } elseif ($currentIndex === 28) {
-            $phaseTransition = 'comparative';
-            $session->update(['phase' => 'comparative']);
+        // Detect phase transitions using RiasecTestConfig
+        $phaseTransition = RiasecTestConfig::getPhaseTransition($currentIndex);
+        if ($phaseTransition) {
+            $session->update(['phase' => $phaseTransition]);
         }
+
+        $currentPhase = RiasecTestConfig::getPhaseForIndex($currentIndex);
+        $progress = RiasecTestConfig::getProgress($currentIndex);
 
         return [
             'item' => $item,
-            'phase' => $this->resolvePhaseForIndex($currentIndex),
+            'phase' => $currentPhase,
             'current_index' => $currentIndex,
             'phase_transition' => $phaseTransition,
             'test_complete' => false,
+            'progress' => $progress,
         ];
     }
 
     public function getItemAtIndexV2(VocationalSession $session, int $index): array
     {
+        $currentPhase = RiasecTestConfig::getPhaseForIndex($index);
+        $progress = RiasecTestConfig::getProgress($index);
+        
         return [
             'item' => $this->getItemAtIndex($session, $index),
-            'phase' => $this->resolvePhaseForIndex($index),
+            'phase' => $currentPhase,
             'current_index' => $index,
             'phase_transition' => null,
             'test_complete' => false,
+            'progress' => $progress,
         ];
     }
 
@@ -497,6 +506,18 @@ class VocationalEngineService
      */
     protected function personalizeItemOrder($bankItems, array $profileContext): array
     {
+        // Build a cache key based on age_group + profile content hash.
+        // If nothing changed, we skip the Gemini call entirely.
+        $cacheKey = 'item_order_'
+            . ($profileContext['age_group'] ?? 'unknown')
+            . '_' . md5(json_encode($profileContext));
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            Log::info('[VocationalEngineV2] Using cached question order');
+            return $cached;
+        }
+
         // Convert to array format for Gemini
         $itemsArray = $bankItems->map(fn($item) => [
             'id' => $item->id,
@@ -512,10 +533,15 @@ class VocationalEngineService
         // Fallback to default order if personalization fails or returns empty
         if (empty($personalizedIds)) {
             Log::info('[VocationalEngineV2] Using default question order (personalization skipped)');
-            return $bankItems->pluck('id')->toArray();
+            $defaultIds = $bankItems->pluck('id')->toArray();
+            // Cache default order for 24h so next restart is instant too
+            Cache::put($cacheKey, $defaultIds, now()->addHours(24));
+            return $defaultIds;
         }
 
-        Log::info('[VocationalEngineV2] Using personalized question order');
+        Log::info('[VocationalEngineV2] Using personalized question order (Gemini)');
+        // Cache personalized order for 24h — profile rarely changes within a session
+        Cache::put($cacheKey, $personalizedIds, now()->addHours(24));
         return $personalizedIds;
     }
 
@@ -547,24 +573,29 @@ class VocationalEngineService
 
         // Add phase-specific data
         if ($item->phase === 'checklist') {
+            // Legacy checklist (deprecated)
             $payload['options'] = $item->getChecklistOptions();
         } elseif ($item->phase === 'comparative') {
             $payload['dimension_b'] = $item->dimension_b;
+        } elseif ($item->phase === 'competencies') {
+            // Sí/No questions
+            $payload['response_type'] = 'binary';
+        } elseif ($item->phase === 'occupations') {
+            // Me atrae / No me atrae
+            $payload['response_type'] = 'binary';
+        } elseif ($item->phase === 'activities') {
+            // Likert 1-5
+            $payload['response_type'] = 'likert_5';
         }
 
         return $payload;
     }
 
+    /**
+     * @deprecated Use RiasecTestConfig::getPhaseForIndex() instead
+     */
     protected function resolvePhaseForIndex(int $index): string
     {
-        if ($index < 18) {
-            return 'likert';
-        }
-
-        if ($index < 28) {
-            return 'checklist';
-        }
-
-        return 'comparative';
+        return RiasecTestConfig::getPhaseForIndex($index);
     }
 }
