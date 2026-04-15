@@ -21,8 +21,9 @@ import {
 	ArrowUpDown,
 	Camera,
 	Upload,
+	Shield,
 } from "lucide-react";
-import { updateProfile, updateProfileWithImage, deleteProfileImage } from "../api";
+import { updateProfile, updateProfileWithImage, deleteProfileImage, updatePassword } from "../api";
 import { useCargarDatosPersonales } from "../utils/CargarPerfil";
 import { scrollToFirstError } from "@/utils/ScrollToFirstError";
 import MonthYearPicker from "../components/MonthYearPicker";
@@ -31,8 +32,16 @@ import DatePicker from "../components/DatePicker";
 export default function Perfil() {
 	const { isAuthenticated } = useAuth();
 	const [saving, setSaving] = useState(false);
+	const [savingPassword, setSavingPassword] = useState(false);
 	const [error, setError] = useState(null);
 	const [successMessage, setSuccessMessage] = useState(null);
+	const [passwordMessage, setPasswordMessage] = useState(null);
+	const [passwordError, setPasswordError] = useState(null);
+	const [passwordData, setPasswordData] = useState({
+		current_password: "",
+		new_password: "",
+		new_password_confirmation: "",
+	});
 
 	// 1. Datos personales
 	const [datosPersonales, setDatosPersonales] = useState({
@@ -704,6 +713,35 @@ export default function Perfil() {
 			setError("Error guardando perfil: " + err.message);
 		} finally {
 			setSaving(false);
+		}
+	};
+
+	const handlePasswordChange = async (e) => {
+		e.preventDefault();
+		setSavingPassword(true);
+		setPasswordError(null);
+		setPasswordMessage(null);
+
+		try {
+			const response = await updatePassword(passwordData);
+
+			if (response.success) {
+				setPasswordMessage(response.message || "Contraseña actualizada correctamente.");
+				setPasswordData({
+					current_password: "",
+					new_password: "",
+					new_password_confirmation: "",
+				});
+			} else {
+				const firstValidationError = response.errors
+					? Object.values(response.errors).flat()[0]
+					: null;
+				setPasswordError(firstValidationError || response.error || "No se pudo actualizar la contraseña.");
+			}
+		} catch (err) {
+			setPasswordError("Error actualizando contraseña: " + err.message);
+		} finally {
+			setSavingPassword(false);
 		}
 	};
 
@@ -1987,8 +2025,79 @@ export default function Perfil() {
 							<p className="mt-3 text-xs text-gray-500">
 								Comparte tus pasiones e intereses para obtener recomendaciones más personalizadas
 							</p>
+					</div>
+				</div>
+
+				<div id="seguridad" className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-100">
+					<div className="bg-gradient-to-r from-slate-600 to-slate-700 px-6 py-4">
+						<div className="flex items-center gap-3">
+							<Shield className="w-6 h-6 text-white" />
+							<div>
+								<h2 className="text-xl font-bold text-white">Seguridad y contraseña</h2>
+								<p className="text-slate-100 text-sm">Cámbiala fácilmente antes de subir a producción.</p>
+							</div>
 						</div>
 					</div>
+					<div className="p-6">
+						<form onSubmit={handlePasswordChange} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 mb-2">Contraseña actual</label>
+								<input
+									type="password"
+									value={passwordData.current_password}
+									onChange={(e) => setPasswordData((prev) => ({ ...prev, current_password: e.target.value }))}
+									className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+									required
+								/>
+							</div>
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 mb-2">Nueva contraseña</label>
+								<input
+									type="password"
+									value={passwordData.new_password}
+									onChange={(e) => setPasswordData((prev) => ({ ...prev, new_password: e.target.value }))}
+									className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+									minLength={8}
+									required
+								/>
+							</div>
+							<div>
+								<label className="block text-sm font-semibold text-gray-700 mb-2">Confirmar nueva contraseña</label>
+								<input
+									type="password"
+									value={passwordData.new_password_confirmation}
+									onChange={(e) => setPasswordData((prev) => ({ ...prev, new_password_confirmation: e.target.value }))}
+									className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+									minLength={8}
+									required
+								/>
+							</div>
+							<div className="md:col-span-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-2">
+								<div className="text-sm text-gray-500">Recomendado para las cuentas demo cuando pases a producción.</div>
+								<button
+									type="submit"
+									disabled={savingPassword}
+									className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white font-semibold bg-slate-700 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+								>
+									<Shield className="w-4 h-4" />
+									{savingPassword ? "Actualizando..." : "Cambiar contraseña"}
+								</button>
+							</div>
+						</form>
+
+						{passwordError && (
+							<div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+								{passwordError}
+							</div>
+						)}
+
+						{passwordMessage && (
+							<div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+								{passwordMessage}
+							</div>
+						)}
+					</div>
+				</div>
 
 					{/* BOTÓN GUARDAR STICKY */}
 					<div className="sticky bottom-6 pt-6 flex justify-end">

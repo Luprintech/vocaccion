@@ -862,8 +862,8 @@ class AdminDashboardController extends Controller
     {
         try {
             // Totales generales
-            // Filtro para excluir usuarios de seed (@vocaccion.com)
-            $dominioSeed = '%@vocaccion.com';
+            // Filtro para excluir usuarios de seed (@vocaccion.es)
+            $dominioSeed = '%@vocaccion.es';
 
             $totalUsuarios = Usuario::where('email', 'not like', $dominioSeed)->count();
             $totalEstudiantes = Usuario::where('email', 'not like', $dominioSeed)

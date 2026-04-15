@@ -184,6 +184,12 @@ function EstudianteDashboard() {
                     >
                         💬 Contactar orientador
                     </a>
+					<a 
+						href="/perfil#seguridad" 
+						className="block text-indigo-600 hover:text-indigo-700 font-medium"
+					>
+						🔐 Cambiar contraseña
+					</a>
                     </div>
                 </div>
                 </div>

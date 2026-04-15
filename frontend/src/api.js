@@ -112,6 +112,17 @@ export async function deleteProfileImage() {
 	return response.json();
 }
 
+export async function updatePassword(data) {
+	const response = await fetch(`${API_URL}/profile/password`, {
+		method: "PUT",
+		headers: getAuthHeaders(),
+		credentials: "include",
+		body: JSON.stringify(data),
+	});
+
+	return response.json();
+}
+
 // ======================================================
 // TEST VOCACIONAL (SISTEMA PROGRESIVO)
 // ======================================================
@@ -245,6 +256,121 @@ export async function getObjetivoProfesional() {
 export async function deleteObjetivoProfesional() {
 	const response = await fetch(`${API_URL}/objetivo-profesional`, {
 		method: 'DELETE',
+		headers: getAuthHeaders(),
+		credentials: 'include',
+	});
+	return response.json();
+}
+
+// ======================================================
+// CATÁLOGO PÚBLICO: CURSOS, ESTUDIOS Y MAPA
+// ======================================================
+
+export async function getFeaturedCourses(limit = 6) {
+	const response = await fetch(`${API_URL}/home/featured-courses?limit=${limit}`);
+	return response.json();
+}
+
+export async function getPublicCourses(params = {}) {
+	const searchParams = new URLSearchParams();
+	Object.entries(params).forEach(([key, value]) => {
+		if (value !== undefined && value !== null && value !== '') {
+			searchParams.set(key, value);
+		}
+	});
+
+	const query = searchParams.toString();
+	const response = await fetch(`${API_URL}/courses${query ? `?${query}` : ''}`);
+	if (!response.ok) {
+		throw new Error(`Error al cargar cursos (${response.status})`);
+	}
+	return response.json();
+}
+
+export async function getStudyFilters() {
+	const response = await fetch(`${API_URL}/studies/filters`);
+	return response.json();
+}
+
+export async function searchPublicStudies(params = {}) {
+	const searchParams = new URLSearchParams();
+	Object.entries(params).forEach(([key, value]) => {
+		if (value !== undefined && value !== null && value !== '') {
+			searchParams.set(key, value);
+		}
+	});
+
+	const response = await fetch(`${API_URL}/studies/search?${searchParams.toString()}`);
+	return response.json();
+}
+
+export async function getCenterStudies(centerId) {
+	const response = await fetch(`${API_URL}/centers/${centerId}/studies`);
+	return response.json();
+}
+
+export async function getCatalogCenterPrograms(centerId) {
+	const response = await fetch(`${API_URL}/catalog-centers/${centerId}/programs`);
+	return response.json();
+}
+
+export async function getLocalitySuggestions(province = '', source = 'all') {
+	const params = new URLSearchParams();
+	if (province) params.set('province', province);
+	if (source && source !== 'all') params.set('source', source);
+	const response = await fetch(`${API_URL}/studies/locality-suggestions?${params.toString()}`);
+	return response.json();
+}
+
+export async function searchPublicCompetitions(params = {}) {
+	const searchParams = new URLSearchParams();
+	Object.entries(params).forEach(([key, value]) => {
+		if (value !== undefined && value !== null && value !== '') {
+			searchParams.set(key, value);
+		}
+	});
+	const response = await fetch(`${API_URL}/competitions?${searchParams.toString()}`);
+	return response.json();
+}
+
+export async function getSearchSuggestions(q = '', source = 'all') {
+	if (!q || q.length < 2) return { success: true, suggestions: [] };
+	const params = new URLSearchParams({ q });
+	if (source && source !== 'all') params.set('source', source);
+	const response = await fetch(`${API_URL}/studies/search-suggestions?${params.toString()}`);
+	return response.json();
+}
+
+export async function getMapCenterFilters() {
+	const response = await fetch(`${API_URL}/centers/map/filters`);
+	return response.json();
+}
+
+export async function getMapCenters(params = {}) {
+	const searchParams = new URLSearchParams();
+	Object.entries(params).forEach(([key, value]) => {
+		if (value !== undefined && value !== null && value !== '') {
+			searchParams.set(key, value);
+		}
+	});
+
+	const response = await fetch(`${API_URL}/centers/map?${searchParams.toString()}`);
+	return response.json();
+}
+
+export async function createDataUpdateRun(payload) {
+	const response = await fetch(`${API_URL}/data-updates`, {
+		method: 'POST',
+		headers: getAuthHeaders(),
+		credentials: 'include',
+		body: JSON.stringify(payload),
+	});
+	return response.json();
+}
+
+export async function getDataUpdateRun(id) {
+	const response = await fetch(`${API_URL}/data-updates/${id}`, {
+		method: 'GET',
 		headers: getAuthHeaders(),
 		credentials: 'include',
 	});
@@ -589,5 +715,81 @@ export async function deleteTestimonial(id) {
 	if (!response.ok) {
 		throw await response.json();
 	}
+	return response.json();
+}
+
+// --- Itinerarios Formativos ---
+export async function generarItinerarioByTitulo(payload) {
+	const response = await fetch(`${API_URL}/profesion/itinerario-by-title`, {
+		method: "POST",
+		headers: getAuthHeaders(),
+		credentials: "include",
+		body: JSON.stringify(payload),
+	});
+	if (!response.ok) {
+		const contentType = response.headers.get("content-type") || "";
+		if (contentType.includes("application/json")) {
+			throw await response.json();
+		}
+
+		const rawText = await response.text();
+		throw {
+			error: `Error HTTP ${response.status} al generar el itinerario`,
+			details: rawText.slice(0, 300),
+		};
+	}
+	return response.json();
+}
+
+// --- Cualificaciones CNCP (nuevos endpoints) ---
+export async function getCualificacionesByProfesionId(profesionId) {
+	const response = await fetch(`${API_URL}/profesion/${profesionId}/cualificaciones`, {
+		method: "GET",
+		headers: getAuthHeaders(),
+		credentials: "include",
+	});
+
+	if (!response.ok) {
+		throw await response.json();
+	}
+
+	return response.json();
+}
+
+export async function getCualificacionesByProfesionTitulo(payload) {
+	const response = await fetch(`${API_URL}/profesion/cualificaciones-by-title`, {
+		method: "POST",
+		headers: getAuthHeaders(),
+		credentials: "include",
+		body: JSON.stringify(payload),
+	});
+
+	if (!response.ok) {
+		throw await response.json();
+	}
+
+	return response.json();
+}
+
+export async function buscarCualificaciones(params = {}) {
+	const query = new URLSearchParams();
+
+	if (params.search) query.set("search", params.search);
+	if (params.codigo_familia) query.set("codigo_familia", params.codigo_familia);
+	if (params.nivel) query.set("nivel", String(params.nivel));
+	if (params.limit) query.set("limit", String(params.limit));
+
+	const suffix = query.toString() ? `?${query.toString()}` : "";
+
+	const response = await fetch(`${API_URL}/cualificaciones${suffix}`, {
+		method: "GET",
+		headers: getAuthHeaders(),
+		credentials: "include",
+	});
+
+	if (!response.ok) {
+		throw await response.json();
+	}
+
 	return response.json();
 }

@@ -263,6 +263,12 @@ function OrientadorDashboard() {
               >
                 Analizar resultados
               </button>
+			  <button
+				onClick={() => navigate('/perfil#seguridad')}
+				className="inline-flex items-center justify-center gap-2 px-8 py-4 border-2 border-amber-400 text-amber-700 rounded-lg font-semibold hover:bg-amber-50 transition-all duration-300 cursor-pointer"
+			  >
+				Cambiar contraseña
+			  </button>
             </div>
           </div>
         </section>

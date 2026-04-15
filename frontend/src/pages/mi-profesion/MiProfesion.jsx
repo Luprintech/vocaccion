@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getObjetivoProfesional, deleteObjetivoProfesional } from '../../api';
+import { getObjetivoProfesional, deleteObjetivoProfesional, getCualificacionesByProfesionTitulo } from '../../api';
 import { useToast } from '@/components/ToastProvider';
 import { useNavigate } from 'react-router-dom';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -9,6 +9,8 @@ import { Target, Sparkles } from 'lucide-react';
 export default function MiProfesion() {
   const [objetivo, setObjetivo] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [cncpLoading, setCncpLoading] = useState(false);
+  const [cncpQualifications, setCncpQualifications] = useState([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const cancelBtnRef = useRef(null);
@@ -25,11 +27,34 @@ export default function MiProfesion() {
         if (!mounted) return;
         if (res?.success) {
           setObjetivo(res.objetivo);
+
+          const tituloProfesion = res?.objetivo?.profesion?.titulo;
+          if (tituloProfesion) {
+            setCncpLoading(true);
+            try {
+              const qRes = await getCualificacionesByProfesionTitulo({ titulo: tituloProfesion });
+              if (!mounted) return;
+              setCncpQualifications(qRes?.success ? (qRes.qualifications || []) : []);
+            } catch {
+              if (mounted) setCncpQualifications([]);
+            } finally {
+              if (mounted) setCncpLoading(false);
+            }
+          } else {
+            setCncpQualifications([]);
+            setCncpLoading(false);
+          }
         } else {
           setObjetivo(null);
+          setCncpQualifications([]);
+          setCncpLoading(false);
         }
       } catch (err) {
         console.error('Error cargando objetivo profesional', err);
+        if (mounted) {
+          setCncpQualifications([]);
+          setCncpLoading(false);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -45,7 +70,15 @@ export default function MiProfesion() {
 
   // Navegar al itinerario académico
   const verItinerario = () => {
-    navigate('/itinerario');
+    navigate('/itinerario', {
+      state: {
+        itinerarioPrefill: {
+          objetivo,
+          qualifications: cncpQualifications,
+          preloadedAt: Date.now(),
+        },
+      },
+    });
   };
 
   // Abrir modal de confirmación
@@ -60,6 +93,7 @@ export default function MiProfesion() {
       const res = await deleteObjetivoProfesional();
       if (res?.success) {
         setObjetivo(null);
+        setCncpQualifications([]);
         showToast('success', 'Profesión objetivo eliminada.');
         // Cerrar modal y notificar otras pestañas
         setConfirmOpen(false);
@@ -174,7 +208,9 @@ export default function MiProfesion() {
                 formacion_recomendada: objetivo.profesion.formacion_recomendada,
                 habilidades: objetivo.profesion.habilidades,
                 habilidades_comparadas: objetivo.profesion.habilidades_comparadas || [],
-                estudios_comparados: objetivo.profesion.estudios_comparados || []
+                estudios_comparados: objetivo.profesion.estudios_comparados || [],
+                cualificaciones_cncp: cncpQualifications,
+                cncp_loading: cncpLoading,
               }}
               onCambiar={cambiar}
               onEliminar={eliminar}
