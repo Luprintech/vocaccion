@@ -519,35 +519,6 @@ class TestController extends Controller
     }
 
     /**
-     * Devuelve el informe final generado por Gemini.
-     * Endpoint: GET /api/test/resultados
-     */
-    public function resultados(Request $request)
-    {
-        $request->validate(['session_id' => 'required']);
-
-        $session = VocationalSession::where('id', $request->session_id)->first();
-        if (!$session)
-            return response()->json(['error' => 'Sesión no encontrada'], 404);
-
-        $profile = VocationalProfile::where('usuario_id', $session->usuario_id)->first();
-        if (!$profile) {
-            return response()->json(['error' => 'Perfil no encontrado'], 404);
-        }
-
-        $profileData = $profile->toArray();
-        $profesiones = $this->careerMatcher->match($profileData);
-        $reportMarkdown = $this->gemini->generateReport($profileData, $profesiones);
-
-        return response()->json([
-            'success' => true,
-            'report_markdown' => $reportMarkdown,
-            'scores' => $profile,
-            'profesiones' => $profesiones,
-        ]);
-    }
-
-    /**
      * Analiza las respuestas acumuladas y devuelve profesiones recomendadas.
      * Endpoint: POST /api/test/analizar-respuestas
      *
@@ -691,18 +662,61 @@ class TestController extends Controller
                     Log::info('analizarResultados: scores a 0, usando historial directo para Gemini');
                     $profileData['_raw_history'] = $historyLog;
                 }
+
+                // Get user's personal context for better report (same as V2 path)
+                $perfil = Perfil::with(['intereses', 'formaciones', 'experiencias'])
+                    ->where('usuario_id', $vocSession->usuario_id)
+                    ->first();
+                if ($perfil) {
+                    $hobbies = $perfil->intereses->pluck('nombre')->filter()->values()->implode(', ');
+                    $education = optional($perfil->formaciones->sortByDesc('fecha_inicio')->first())->titulo_obtenido
+                        ?? optional($perfil->formaciones->sortByDesc('fecha_inicio')->first())->nivel;
+                    $job = optional($perfil->experiencias->sortByDesc('fecha_inicio')->first())->puesto;
+
+                    $profileData['_user_context'] = [
+                        'bio'       => $perfil->bio,
+                        'hobbies'   => $hobbies,
+                        'education' => $education,
+                        'job'       => $job,
+                    ];
+                }
             }
             // ─────────────────────────────────────────────────────────────────────
 
-            // 2. Obtener profesiones del catálogo via matching RIASEC
-            $profesiones = $this->careerMatcher->match($profileData);
+            // 2. Obtener profesiones del catálogo via matching RIASEC con contexto del usuario
+            // Construir contexto del usuario para boosting contextual
+            $userContext = [];
+            
+            // Intentar cargar perfil si no está ya cargado
+            if (!isset($perfil)) {
+                $perfil = Perfil::where('usuario_id', $vocSession->usuario_id)->first();
+            }
+            
+            if ($perfil) {
+                // Edad
+                if ($perfil->fecha_nacimiento) {
+                    $userContext['edad'] = \Carbon\Carbon::parse($perfil->fecha_nacimiento)->age;
+                }
+                
+                // Comunidad Autónoma
+                if ($perfil->comunidad_autonoma) {
+                    $userContext['ccaa'] = $perfil->comunidad_autonoma;
+                }
+                
+                // Nivel educativo (intentar inferir del último nivel de formación)
+                $formaciones = $perfil->formaciones()->orderBy('fecha_inicio', 'desc')->first();
+                if ($formaciones) {
+                    $userContext['nivel_educativo'] = $formaciones->nivel ?? $formaciones->titulo_obtenido;
+                }
+                
+                // Presupuesto (si existe en el modelo — por ahora no existe, preparado para futuro)
+                // $userContext['presupuesto'] = $perfil->presupuesto_formacion ?? null;
+            }
+            
+            $profesiones = $this->careerMatcher->match($profileData, $userContext);
 
             // 3. Resolve user name for personalized report narrative
             $userName = '';
-            if (!isset($perfil)) {
-                // Re-load perfil if not already resolved in V1 path
-                $perfil = Perfil::where('usuario_id', $vocSession->usuario_id)->first();
-            }
             if ($perfil) {
                 $userObj = \App\Models\Usuario::find($vocSession->usuario_id);
                 $ctx = PersonalizationHelper::buildPersonalizationContext($userObj, $perfil);
@@ -766,6 +780,17 @@ class TestController extends Controller
             $vocSession->current_phase = 'done';
             $vocSession->save();
 
+            // Build structured RIASEC scores for frontend (eliminates regex parsing fragility)
+            // IMPORTANT: must be defined before the INSERT below so the snapshot is not null.
+            $riasecScores = [
+                'R' => $profile->realistic_score ?? 0,
+                'I' => $profile->investigative_score ?? 0,
+                'A' => $profile->artistic_score ?? 0,
+                'S' => $profile->social_score ?? 0,
+                'E' => $profile->enterprising_score ?? 0,
+                'C' => $profile->conventional_score ?? 0,
+            ];
+
             // 5. Persistir en test_results para que /resultados funcione al revisitar.
             //    Evitar duplicados: si ya existe un resultado para esta sesión, no insertar otro.
             $existingResult = DB::table('test_results')
@@ -775,34 +800,27 @@ class TestController extends Controller
 
             if (!$existingResult) {
                 // For v2: serialize responses instead of history_log
-                $answersData = $vocSession->isV2() 
+                $answersData = $vocSession->isV2()
                     ? VocationalResponse::where('session_id', $vocSession->id)->get()->toArray()
                     : ($historyLog ?? []);
-                    
+
                 DB::table('test_results')->insert([
-                    'usuario_id' => $vocSession->usuario_id,
+                    'usuario_id'    => $vocSession->usuario_id,
                     'test_session_id' => null,
-                    'answers' => json_encode($answersData),
-                    'result_text' => $reportMarkdown,
-                    'profesiones' => json_encode($profesiones),
-                    'saved_at' => now(),
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'answers'       => json_encode($answersData),
+                    'result_text'   => $reportMarkdown,
+                    'profesiones'   => json_encode($profesiones),
+                    // Snapshot scores at generation time — VocationalProfile can be
+                    // overwritten if the user retakes the test.
+                    'riasec_scores' => json_encode($riasecScores),
+                    'saved_at'      => now(),
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
                 ]);
                 Log::info('analizarResultados: resultado guardado en test_results para usuario ' . $vocSession->usuario_id);
             } else {
                 Log::info('analizarResultados: resultado ya existía, omitiendo inserción duplicada');
             }
-
-            // Build structured RIASEC scores for frontend (eliminates regex parsing fragility)
-            $riasecScores = [
-                'R' => $profile->realistic_score ?? 0,
-                'I' => $profile->investigative_score ?? 0,
-                'A' => $profile->artistic_score ?? 0,
-                'S' => $profile->social_score ?? 0,
-                'E' => $profile->enterprising_score ?? 0,
-                'C' => $profile->conventional_score ?? 0,
-            ];
 
             return response()->json([
                 'success' => true,
@@ -816,31 +834,6 @@ class TestController extends Controller
             Log::error('Error en analizarResultados: ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
             return response()->json(['success' => false, 'error' => 'Error al analizar'], 500);
         }
-    }
-
-    /**
-     * Procesa y persiste los resultados profesionales tras el análisis.
-     * Endpoint: POST /api/test/procesar-resultados
-     */
-    public function procesarResultados(Request $request)
-    {
-        $request->validate(['session_id' => 'required']);
-
-        $session = VocationalSession::where('id', $request->session_id)->first();
-        if (!$session) {
-            return response()->json(['success' => false, 'error' => 'Sesión no encontrada'], 404);
-        }
-
-        $profile = VocationalProfile::where('usuario_id', $session->usuario_id)->first();
-        if (!$profile) {
-            return response()->json(['success' => false, 'error' => 'Perfil no encontrado'], 404);
-        }
-
-        return response()->json([
-            'success' => true,
-            'profile' => $profile,
-            'session_id' => $session->id,
-        ]);
     }
 
     /**

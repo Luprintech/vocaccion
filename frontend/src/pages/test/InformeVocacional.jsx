@@ -12,6 +12,7 @@
  */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { getEmpleoBySector, formatSalario } from '@/data/empleo_sectores';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
   PolarRadiusAxis, Tooltip, ResponsiveContainer,
@@ -28,7 +29,7 @@ import {
   getObjetivoProfesional,
   saveObjetivoProfesional,
   deleteObjetivoProfesional,
-  generateImageForProfession
+  generateImageForProfession,
 } from '../../api';
 import { useToast } from '@/components/ToastProvider';
 import PantallaEsperaResultados from '@/components/PantallaEsperaResultados';
@@ -145,6 +146,13 @@ function parseMarkdown(md) {
     scoreMap[m[1].toUpperCase()] ??= { value: +m[2], pct: +m[3] };
   }
 
+  // DeterministicReportService format: | R (Realista) | 85.23 | 28.3% | ★★★★★ |
+  const deterministicRowRx = /\|\s*([RIASEC])\s*\([^)]+\)\s*\|\s*(\d+(?:\.\d+)?)\s*\|\s*(\d+(?:\.\d+)?)\s*%/gi;
+  while ((m = deterministicRowRx.exec(hollandText)) !== null) {
+    scoreMap[m[1].toUpperCase()] ??= { value: +m[2], pct: +m[3] };
+  }
+
+  // Legacy Gemini format: | R | description | 85 | 28.3% |
   const tableRowRx = /\|\s*([RIASEC])\s*\|[^|]*\|\s*(\d+)\s*\|\s*(\d+(?:\.\d+)?)%/gi;
   while ((m = tableRowRx.exec(hollandText)) !== null) {
     scoreMap[m[1].toUpperCase()] ??= { value: +m[2], pct: +m[3] };
@@ -324,25 +332,38 @@ function parseMarkdown(md) {
         }
       }
 
+      const CAREER_FIELD_TERMINATORS = 'Por qu[ée] encaja|Salidas (?:laborales|profesionales)|Formaci[óo]n recomendada|Primeros(?: 3)? pasos|Compatibilidad|Sector|Nivel salarial|Habilidades clave';
+
       const extractSub = (labels) => {
-        const rx = new RegExp(`(?:\\*\\*|###)?\\s*(?:${labels})[^\\n:]*:?\\*?\\*?\\s*\\n?([\\s\\S]*?)(?=\\n[ \\t]*[-*]*\\s*\\*?\\*?(?:Por qu[ée] encaja|Salidas laborales|Formaci[óo]n recomendada|Primeros 3 pasos|Primeros pasos|Compatibilidad)(?:[\\s:]|$)|$)`, 'i');
+        const rx = new RegExp(`(?:\\*\\*|###)?\\s*(?:${labels})[^\\n:]*:?\\*?\\*?\\s*\\n?([\\s\\S]*?)(?=\\n[ \\t]*[-*]*\\s*\\*?\\*?(?:${CAREER_FIELD_TERMINATORS})(?:[\\s:]|$)|$)`, 'i');
         const match = block.match(rx);
         return match ? match[1].trim() : '';
+      };
+
+      // Single-line field (no multi-line content expected)
+      const extractLine = (labels) => {
+        const rx = new RegExp(`(?:\\*\\*)?\\s*(?:${labels})[^\\n:]*:\\*?\\*?\\s*(.+)`, 'i');
+        const match = block.match(rx);
+        return match ? match[1].replace(/\*\*/g, '').trim() : '';
       };
 
       const whyRaw = extractSub('Por qu[ée] encaja');
       const why = whyRaw.replace(/^[ \t]*[-*]\s*/gm, '').replace(/\*\*/g, '').trim();
 
-      const salidasRaw = extractSub('Salidas laborales');
-      const salidas = salidasRaw.split(/\n/)
+      const salidasRaw = extractSub('Salidas (?:laborales|profesionales)');
+      let salidas = salidasRaw.split(/\n/)
         .map(l => l.replace(/^[ \t]*[-*]\s*/, '').replace(/\*\*/g, '').trim())
         .filter(l => l && l !== '*' && l !== '-');
+      // If there is only one line and it contains commas, split into individual items
+      if (salidas.length === 1 && salidas[0].includes(',')) {
+        salidas = salidas[0].split(',').map(s => s.trim()).filter(Boolean);
+      }
 
       const formacionRaw = extractSub('Formaci[óo]n recomendada');
       const formacionLines = formacionRaw.split(/\n/)
         .map(l => l.replace(/^[ \t]*[-*]\s*/, '').replace(/\*\*/g, '').trim())
         .filter(l => l && l !== '*' && l !== '-');
-      
+
       let formacion = formacionLines;
       if (formacionLines.length === 1 && formacionLines[0]) {
         const sentences = formacionLines[0].split(/(?<=[.!?])\s+/).filter(Boolean);
@@ -356,7 +377,11 @@ function parseMarkdown(md) {
         .map(l => l.replace(/^[ \t]*(?:\d+\.|\*|-)\s*/, '').replace(/\*\*/g, '').trim())
         .filter(l => l && l !== '*' && l !== '-');
 
-      return { title, compat, compatDetails, why, salidas, formacion, steps };
+      const sector      = extractLine('Sector');
+      const sueldo      = extractLine('Nivel salarial');
+      const habilidades = extractLine('Habilidades clave');
+
+      return { title, compat, compatDetails, why, salidas, formacion, steps, sector, sueldo, habilidades };
     }).filter(b => b && b.title).slice(0, 6);
   }
 
@@ -721,6 +746,9 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
   const [careerImage, setCareerImage] = React.useState(null);
   const [imageLoading, setImageLoading] = React.useState(true);
 
+  // Datos reales de inserción laboral (fuente: QEDU — Ministerio de Ciencia)
+  const empleoData = React.useMemo(() => getEmpleoBySector(career.sector), [career.sector]);
+
   React.useEffect(() => {
     let mounted = true;
     const cacheKey = `career_image_v2_${career.title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
@@ -759,9 +787,21 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
     };
   }, [career.title]);
 
+  const handleGenerarItinerario = () => {
+    navigate('/itinerario', {
+      state: {
+        itinerarioPrefill: {
+          objetivo: { profesion: { titulo: career.title } },
+          qualifications: [],
+          preloadedAt: Date.now(),
+        },
+      },
+    });
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-2xl p-8 mb-6 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-8">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-6">
         <div>
           <span className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2 block">
             Opción recomendada #{rank}
@@ -769,6 +809,45 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
           <h3 className="text-2xl font-extrabold text-gray-900 m-0 leading-tight">
             {career.title}
           </h3>
+          {/* Sector + salary meta row */}
+          {(career.sector || career.sueldo) && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {career.sector && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                  <Briefcase size={11} />
+                  {career.sector}
+                </span>
+              )}
+              {career.sueldo && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <TrendingUp size={11} />
+                  {career.sueldo}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Datos reales de inserción laboral (QEDU) */}
+          {empleoData && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              <span
+                title="% de titulados dados de alta en la Seguridad Social 4 años tras graduarse (fuente: QEDU — Ministerio de Ciencia)"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 cursor-help"
+              >
+                <UserCheck size={11} />
+                Empleabilidad {empleoData.tasa_afiliacion}%
+                <span className="text-blue-400 font-normal">· QEDU</span>
+              </span>
+              <span
+                title="Base de cotización media anual de titulados universitarios en este sector, 4 años tras graduarse (fuente: QEDU — Ministerio de Ciencia)"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-200 cursor-help"
+              >
+                <TrendingUp size={11} />
+                ~{formatSalario(empleoData.salario_medio)}
+                <span className="text-violet-400 font-normal">· datos reales</span>
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-end flex-shrink-0 md:max-w-xs text-right">
           <span className="px-3 py-1 rounded-full text-xs font-bold mb-2 inline-flex"
@@ -817,6 +896,22 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
             </div>
           )}
 
+          {career.habilidades && (
+            <div>
+              <h4 className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-3 border-b border-gray-100 pb-2">
+                <Zap className="w-5 h-5 text-amber-500" />
+                Habilidades clave requeridas
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {career.habilidades.split(',').map((h, i) => (
+                  <span key={i} className="px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+                    {h.trim()}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {career.salidas?.length > 0 && (
             <div>
               <h4 className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-3 border-b border-gray-100 pb-2">
@@ -834,7 +929,7 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
             </div>
           )}
 
-          <div className="pt-2">
+          <div className="pt-2 space-y-3">
             {!isSelected ? (
               <div className="flex justify-center">
                 <button
@@ -865,6 +960,18 @@ function CareerBlock({ career, rank, isSelected, isActionLoading, onSelect, onCl
                 </button>
               </div>
             )}
+            
+            {/* Botón Itinerario Formativo (siempre visible) */}
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={handleGenerarItinerario}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow"
+              >
+                <GraduationCap size={16} />
+                Ver itinerario formativo
+              </button>
+            </div>
           </div>
         </div>
 
@@ -997,6 +1104,74 @@ function TableOfContents() {
   );
 }
 
+// ─── Holland psychometric indices ────────────────────────
+// Consistencia: adyacencia de los dos rasgos dominantes en el hexágono RIASEC.
+// Hexágono Holland: R(0) – I(1) – A(2) – S(3) – E(4) – C(5) – R
+// Adyacentes (diff=1): RI, IA, AS, SE, EC, CR → consistentes
+// Alternos   (diff=2): RA, IS, AE, SC, ER, CI → moderados
+// Opuestos   (diff=3): RS, IE, AC              → inconsistentes
+
+function computeConsistency(riasecCode) {
+  if (!riasecCode || riasecCode.length < 2) return null;
+  const pos = { R: 0, I: 1, A: 2, S: 3, E: 4, C: 5 };
+  const p1 = pos[riasecCode[0]];
+  const p2 = pos[riasecCode[1]];
+  if (p1 === undefined || p2 === undefined) return null;
+  const diff = Math.min(Math.abs(p1 - p2), 6 - Math.abs(p1 - p2));
+  if (diff === 1) return {
+    level: 'Alta consistencia',
+    badge: '#16a34a',
+    bg: '#f0fdf4',
+    border: '#bbf7d0',
+    tooltip: 'Tus dos rasgos dominantes son adyacentes en el hexágono Holland: perfil coherente, alta probabilidad de satisfacción vocacional.',
+  };
+  if (diff === 2) return {
+    level: 'Consistencia media',
+    badge: '#ca8a04',
+    bg: '#fefce8',
+    border: '#fde68a',
+    tooltip: 'Tus dos rasgos dominantes están a dos posiciones en el hexágono: perfil con cierta tensión, pero compatible.',
+  };
+  return {
+    level: 'Baja consistencia',
+    badge: '#dc2626',
+    bg: '#fef2f2',
+    border: '#fecaca',
+    tooltip: 'Tus dos rasgos dominantes son opuestos en el hexágono Holland. Puede indicar versatilidad o conflicto de valores vocacionales — merece exploración adicional.',
+  };
+}
+
+// Diferenciación: rango entre la dimensión más alta y la más baja.
+// Perfil diferenciado = preferencias vocacionales claras.
+// Perfil plano = intereses distribuidos — se recomienda más exploración antes de decidir.
+
+function computeDifferentiation(scores) {
+  if (!scores || scores.length === 0) return null;
+  const pcts = scores.map(s => s.pct);
+  const range = Math.max(...pcts) - Math.min(...pcts);
+  if (range > 20) return {
+    level: 'Perfil definido',
+    badge: '#16a34a',
+    bg: '#f0fdf4',
+    border: '#bbf7d0',
+    tooltip: `Rango de ${range.toFixed(1)}%: tienes preferencias vocacionales claras y marcadas. Las recomendaciones tienen alta fiabilidad.`,
+  };
+  if (range > 10) return {
+    level: 'Perfil moderado',
+    badge: '#ca8a04',
+    bg: '#fefce8',
+    border: '#fde68a',
+    tooltip: `Rango de ${range.toFixed(1)}%: tus preferencias son relativamente claras. Buena base para orientación.`,
+  };
+  return {
+    level: 'Perfil difuso',
+    badge: '#7c3aed',
+    bg: '#faf5ff',
+    border: '#e9d5ff',
+    tooltip: `Rango de ${range.toFixed(1)}%: tus intereses están distribuidos de forma muy equilibrada. Considera ampliar la exploración vocacional antes de decidir.`,
+  };
+}
+
 // ─── PDF Download helper ──────────────────────────────────
 
 function generatePdfDownload(text, showToast) {
@@ -1118,21 +1293,52 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
             <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 leading-tight">
               {report?.title || 'Reporte de Orientación Profesional'}
             </h1>
-            {report?.riasecCode && (
-              <div className="flex items-center gap-3 mt-2">
-                <span className="text-sm font-medium text-white/70">Perfil dominante identificado:</span>
-                <span
-                  className="px-4 py-1.5 rounded-lg text-base font-black tracking-widest shadow-lg"
-                  style={{
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
-                    color: '#fff',
-                    boxShadow: '0 0 0 1px rgba(255,255,255,0.15), 0 4px 12px rgba(124,58,237,0.5)',
-                  }}
-                >
-                  {report.riasecCode}
-                </span>
-              </div>
-            )}
+            {report?.riasecCode && (() => {
+              const consistency     = computeConsistency(report.riasecCode);
+              const differentiation = computeDifferentiation(report.riasecScores);
+              return (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-white/70">Perfil dominante:</span>
+                    <span
+                      className="px-4 py-1.5 rounded-lg text-base font-black tracking-widest shadow-lg"
+                      style={{
+                        background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                        color: '#fff',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.15), 0 4px 12px rgba(124,58,237,0.5)',
+                      }}
+                    >
+                      {report.riasecCode}
+                    </span>
+                  </div>
+                  {/* Índices psicométricos Holland */}
+                  {(consistency || differentiation) && (
+                    <div className="flex flex-wrap gap-2">
+                      {consistency && (
+                        <span
+                          title={consistency.tooltip}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold cursor-help"
+                          style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+                        >
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: consistency.badge }} />
+                          {consistency.level}
+                        </span>
+                      )}
+                      {differentiation && (
+                        <span
+                          title={differentiation.tooltip}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold cursor-help"
+                          style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}
+                        >
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: differentiation.badge }} />
+                          {differentiation.level}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           {onDownload && (
             <button
@@ -1159,6 +1365,13 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
           <div className="max-w-4xl mr-auto">
             
             <DocSection id="riasec" title="1. Análisis de tu Código Holland" icon={UserCheck}>
+
+              {/* ── Radar chart — primero para orientar visualmente al usuario ── */}
+              {report.riasecScores?.length > 0 && (
+                <div className="mb-10">
+                  <RiasecRadar scores={report.riasecScores} />
+                </div>
+              )}
 
               {report.hollandIntro ? (
                 <div className="text-base text-gray-700 leading-relaxed space-y-3 mb-8 text-justify">
@@ -1225,14 +1438,6 @@ function ReportDashboard({ report, informeMarkdown, selectedCareerTitle, careerA
                         </div>
                       </div>
                     )}
-
-                    {/* Radar chart */}
-                    <div className="pt-6">
-                      <h3 className="text-lg font-bold text-gray-900 mb-4">
-                        Gráfico de tu Perfil
-                      </h3>
-                      <RiasecRadar scores={report.riasecScores} />
-                    </div>
 
                   </div>
                 );
@@ -1326,6 +1531,8 @@ export default function InformeVocacional() {
   const [isFallback, setIsFallback] = useState(false);
   // Structured RIASEC scores from API — eliminates markdown regex parsing fragility (REQ-1.2)
   const [apiRiasecScores, setApiRiasecScores] = useState(null);
+  // Structured careers from DB — used to pre-seed image cache, avoids redundant Pexels calls
+  const [apiCareers, setApiCareers] = useState(null);
 
   // Career selection state
   const [selectedCareerTitle, setSelectedCareerTitle] = useState(null);
@@ -1367,6 +1574,18 @@ export default function InformeVocacional() {
     return parsed;
   }, [informeMarkdown, apiRiasecScores]);
 
+  // Pre-seed career image cache from structured API data (avoids Pexels calls for historical results)
+  useEffect(() => {
+    if (!apiCareers) return;
+    apiCareers.forEach(career => {
+      if (!career.titulo || !career.imagenUrl) return;
+      const key = `career_image_v2_${career.titulo.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, career.imagenUrl);
+      }
+    });
+  }, [apiCareers]);
+
   // ── Load results ──────────────────────────────────────────
   useEffect(() => {
     async function generarResultados() {
@@ -1389,6 +1608,15 @@ export default function InformeVocacional() {
         if (res?.success && res.results && res.results.length > 0) {
           const latest = res.results[0];
           setInformeMarkdown(latest.result_text || '');
+          // Use structured scores from profile so the radar chart renders
+          // without depending on fragile markdown regex parsing.
+          if (res.riasec_scores) {
+            setApiRiasecScores(res.riasec_scores);
+          }
+          // Pre-seed career image cache from stored profesiones (avoids extra Pexels API calls)
+          if (res.profesiones && Array.isArray(res.profesiones)) {
+            setApiCareers(res.profesiones);
+          }
           setFrase('Estos son tus resultados guardados:');
           setCargando(false);
           return;
