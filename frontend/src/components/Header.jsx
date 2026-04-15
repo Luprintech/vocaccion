@@ -3,11 +3,15 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContextFixed";
 import { logoutUser } from "../api";
-import { Lightbulb, Sparkles, Map, Calendar, MessageCircle } from "lucide-react";
+import { Lightbulb, Sparkles, Map, Calendar, MessageCircle, ChevronDown, GraduationCap, BookOpen, MapPin, FileText, Shield, Award } from "lucide-react";
 
 export default function Header({ onToggleSidebar, showSidebar = false }) {
   // Estado para controlar si el menú móvil está abierto o cerrado
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Estado y ref para el dropdown "Formación" en desktop
+  const [formacionOpen, setFormacionOpen] = useState(false);
+  const formacionRef = useRef(null);
 
   // Obtener roles del contexto de autenticación
   const { user, getPrimaryRole, token } = useAuth();
@@ -92,6 +96,18 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
     };
   }, [isMenuOpen]);
 
+  // Cerrar dropdown Formación al hacer clic fuera
+  useEffect(() => {
+    if (!formacionOpen) return;
+    const handler = (e) => {
+      if (formacionRef.current && !formacionRef.current.contains(e.target)) {
+        setFormacionOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [formacionOpen]);
+
   return (
     // Header fijo en la parte superior con sombra y borde
     <header className="bg-white shadow-sm border-b sticky top-0 z-50">
@@ -154,6 +170,132 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
               Planes
               <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-linear-to-r from-purple-600 to-green-600 group-hover:w-full transition-all duration-300"></span>
             </Link>
+            {/* DROPDOWN FORMACIÓN */}
+            <div ref={formacionRef} className="relative">
+              <button
+                onClick={() => setFormacionOpen((v) => !v)}
+                className={`relative flex items-center gap-1 font-semibold transition-colors group ${formacionOpen ? 'text-purple-600' : 'text-gray-600 hover:text-purple-600'}`}
+              >
+                Formación
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${formacionOpen ? 'rotate-180 text-purple-600' : ''}`} />
+                <span className={`absolute bottom-0 left-0 h-0.5 bg-linear-to-r from-purple-600 to-green-600 transition-all duration-300 ${formacionOpen ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
+              </button>
+
+              {formacionOpen && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-80 rounded-2xl border border-gray-100 bg-white shadow-xl z-50 overflow-hidden">
+                  {/* Triángulo decorativo */}
+                  <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-l border-t border-gray-100 rotate-45" />
+
+                  <div className="p-2">
+                    {/* Items activos */}
+                    <Link
+                      to="/estudios"
+                      onClick={() => setFormacionOpen(false)}
+                      className="flex items-start gap-3 rounded-xl px-4 py-3 hover:bg-purple-50 transition-colors group/item"
+                    >
+                      <div className="mt-0.5 rounded-lg bg-purple-100 p-1.5 text-purple-600 group-hover/item:bg-purple-200 transition-colors shrink-0">
+                        <GraduationCap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">Estudios</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Universidad, FP, Bachillerato, idiomas...</p>
+                      </div>
+                    </Link>
+
+                    <Link
+                      to="/oposiciones"
+                      onClick={() => setFormacionOpen(false)}
+                      className="flex items-start gap-3 rounded-xl px-4 py-3 hover:bg-purple-50 transition-colors group/item"
+                    >
+                      <div className="mt-0.5 rounded-lg bg-orange-100 p-1.5 text-orange-600 group-hover/item:bg-orange-200 transition-colors shrink-0">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">Oposiciones</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Convocatorias BOE por grupo y ámbito</p>
+                      </div>
+                    </Link>
+
+                    <Link
+                      to="/certificados"
+                      onClick={() => setFormacionOpen(false)}
+                      className="flex items-start gap-3 rounded-xl px-4 py-3 hover:bg-purple-50 transition-colors group/item"
+                    >
+                      <div className="mt-0.5 rounded-lg bg-emerald-100 p-1.5 text-emerald-600 group-hover/item:bg-emerald-200 transition-colors shrink-0">
+                        <Award className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">Certificados de profesionalidad</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Catálogo oficial SEPE por familia</p>
+                      </div>
+                    </Link>
+
+                    <Link
+                      to="/cursos"
+                      onClick={() => setFormacionOpen(false)}
+                      className="flex items-start gap-3 rounded-xl px-4 py-3 hover:bg-purple-50 transition-colors group/item"
+                    >
+                      <div className="mt-0.5 rounded-lg bg-green-100 p-1.5 text-green-600 group-hover/item:bg-green-200 transition-colors shrink-0">
+                        <BookOpen className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">Cursos oficiales</p>
+                        <p className="text-xs text-gray-500 mt-0.5">SAE, SEPE y formación laboral</p>
+                      </div>
+                    </Link>
+
+                    <Link
+                      to="/mapa"
+                      onClick={() => setFormacionOpen(false)}
+                      className="flex items-start gap-3 rounded-xl px-4 py-3 hover:bg-purple-50 transition-colors group/item"
+                    >
+                      <div className="mt-0.5 rounded-lg bg-indigo-100 p-1.5 text-indigo-600 group-hover/item:bg-indigo-200 transition-colors shrink-0">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900">Mapa de centros</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Centros educativos en España</p>
+                      </div>
+                    </Link>
+
+                    {/* Separador "Próximamente" */}
+                    <div className="mx-3 my-2 flex items-center gap-2">
+                      <div className="h-px flex-1 bg-gray-100" />
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Próximamente</span>
+                      <div className="h-px flex-1 bg-gray-100" />
+                    </div>
+
+                    <div className="flex items-start gap-3 rounded-xl px-4 py-3 opacity-50 cursor-not-allowed">
+                      <div className="mt-0.5 rounded-lg bg-teal-100 p-1.5 text-teal-500 shrink-0">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900 flex items-center gap-2">
+                          Unidades de competencia
+                          <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-600">En breve</span>
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">Acreditación de competencias profesionales</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 rounded-xl px-4 py-3 opacity-50 cursor-not-allowed">
+                      <div className="mt-0.5 rounded-lg bg-pink-100 p-1.5 text-pink-500 shrink-0">
+                        <Map className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-900 flex items-center gap-2">
+                          Garantía Juvenil
+                          <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-bold text-pink-600">En breve</span>
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">Programas de empleo y formación joven</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* FIN DROPDOWN FORMACIÓN */}
+
             <Link
               to="/recursos"
               className="relative text-gray-600 hover:text-purple-600 transition-colors font-semibold group"
@@ -235,6 +377,45 @@ export default function Header({ onToggleSidebar, showSidebar = false }) {
                 >
                   Planes
                 </Link>
+                {/* Sección Formación en móvil */}
+                <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-2 space-y-0.5">
+                  <span className="block text-[10px] font-bold text-purple-400 uppercase tracking-wider px-2 pb-1">Formación</span>
+                  <Link
+                    to="/estudios"
+                    className="flex items-center gap-2 text-gray-700 hover:text-purple-600 hover:bg-white transition-all font-semibold py-2 px-3 rounded-lg text-sm"
+                    onClick={closeMenu}
+                  >
+                    <GraduationCap className="w-4 h-4 text-purple-500 shrink-0" /> Estudios
+                  </Link>
+                  <Link
+                    to="/oposiciones"
+                    className="flex items-center gap-2 text-gray-700 hover:text-purple-600 hover:bg-white transition-all font-semibold py-2 px-3 rounded-lg text-sm"
+                    onClick={closeMenu}
+                  >
+                    <Shield className="w-4 h-4 text-orange-500 shrink-0" /> Oposiciones
+                  </Link>
+                  <Link
+                    to="/certificados"
+                    className="flex items-center gap-2 text-gray-700 hover:text-purple-600 hover:bg-white transition-all font-semibold py-2 px-3 rounded-lg text-sm"
+                    onClick={closeMenu}
+                  >
+                    <Award className="w-4 h-4 text-emerald-500 shrink-0" /> Certificados de profesionalidad
+                  </Link>
+                  <Link
+                    to="/cursos"
+                    className="flex items-center gap-2 text-gray-700 hover:text-purple-600 hover:bg-white transition-all font-semibold py-2 px-3 rounded-lg text-sm"
+                    onClick={closeMenu}
+                  >
+                    <BookOpen className="w-4 h-4 text-green-500 shrink-0" /> Cursos oficiales
+                  </Link>
+                  <Link
+                    to="/mapa"
+                    className="flex items-center gap-2 text-gray-700 hover:text-purple-600 hover:bg-white transition-all font-semibold py-2 px-3 rounded-lg text-sm"
+                    onClick={closeMenu}
+                  >
+                    <MapPin className="w-4 h-4 text-indigo-500 shrink-0" /> Mapa de centros
+                  </Link>
+                </div>
                 <Link
                   to="/recursos"
                   className="text-gray-600 hover:text-purple-600 hover:bg-purple-50 transition-all font-semibold py-2 px-3 rounded-lg text-sm"
