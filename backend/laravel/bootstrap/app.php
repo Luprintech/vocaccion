@@ -12,6 +12,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withCommands([
         \App\Console\Commands\VocationalStressTest::class,
+        \App\Console\Commands\VocationalQuickTest::class,
+        \App\Console\Commands\GeocodeCenters::class,
+        \App\Console\Commands\GeocodeCentersExact::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Registrar middleware alias

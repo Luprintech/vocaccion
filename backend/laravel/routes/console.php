@@ -37,7 +37,7 @@ Artisan::command('test:auth', function () {
     // Probar creación de usuario
     $this->info('📝 Probando registro de usuario...');
 
-    $email = 'test' . time() . '@vocaccion.com';
+    $email = 'test' . time() . '@vocaccion.es';
     $password = 'password123';
 
     try {
@@ -120,7 +120,7 @@ Artisan::command('test:email-verification', function () {
 
     try {
         // Crear usuario de prueba sin verificar
-        $email = 'test.verification.' . time() . '@vocaccion.com';
+        $email = 'test.verification.' . time() . '@vocaccion.es';
         $password = 'password123';
 
         $usuario = Usuario::create([

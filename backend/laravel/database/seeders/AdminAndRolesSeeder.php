@@ -32,14 +32,14 @@ class AdminAndRolesSeeder extends Seeder
         // 1. ADMINISTRADOR
         // ==========================================
         $admin = Usuario::updateOrCreate(
-        ['email' => 'admin@vocaccion.com'],
+        ['email' => 'admin@vocaccion.es'],
         [
             'nombre' => 'Admin VocAcción',
             'password' => Hash::make($passwordAdmin),
             'email_verified_at' => now(),
         ]
         );
-        echo "   Admin actualizado: admin@vocaccion.com / $passwordAdmin\n";
+        echo "   Admin actualizado: admin@vocaccion.es / $passwordAdmin\n";
 
         // Asignar rol si no lo tiene
         if (!$admin->roles()->where('rol_id', 1)->exists()) {
@@ -53,14 +53,14 @@ class AdminAndRolesSeeder extends Seeder
         // 2. ORIENTADOR
         // ==========================================
         $orientador = Usuario::updateOrCreate(
-        ['email' => 'carlos@vocaccion.com'],
+        ['email' => 'carlos@vocaccion.es'],
         [
             'nombre' => 'Carlos García - Orientador',
             'password' => Hash::make($passwordOrientador),
             'email_verified_at' => now(),
         ]
         );
-        echo "   Orientador actualizado: carlos@vocaccion.com / $passwordOrientador\n";
+        echo "   Orientador actualizado: carlos@vocaccion.es / $passwordOrientador\n";
 
         // Asignar rol si no lo tiene
         if (!$orientador->roles()->where('rol_id', 2)->exists()) {
@@ -71,8 +71,8 @@ class AdminAndRolesSeeder extends Seeder
 
         echo "\n Todos los usuarios de prueba están listos!\n";
         echo "\n Credenciales de prueba:\n";
-        echo "   Administrador: admin@vocaccion.com / $passwordAdmin\n";
-        echo "   Orientador:    carlos@vocaccion.com / $passwordOrientador\n";
+        echo "   Administrador: admin@vocaccion.es / $passwordAdmin\n";
+        echo "   Orientador:    carlos@vocaccion.es / $passwordOrientador\n";
         echo "\n";
     }
 }

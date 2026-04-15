@@ -6,6 +6,7 @@ use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Models\Guia;
 
 class GuiasSeeder extends Seeder
 {
@@ -112,11 +113,14 @@ class GuiasSeeder extends Seeder
             ],
         ];
 
-        foreach ($guias as $guia) {
-            DB::table('guias')->insert($guia);
+        foreach ($guias as $guiaData) {
+            Guia::updateOrCreate(
+                ['slug' => $guiaData['slug']],
+                $guiaData
+            );
         }
 
-        echo "✅ Guías creadas exitosamente:\n";
+        echo "✅ Guías creadas/actualizadas exitosamente:\n";
         echo "   - 3 recursos gratuitos\n";
         echo "   - 2 recursos premium (Pro/Pro Plus)\n";
     }
