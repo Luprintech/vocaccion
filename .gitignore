@@ -14,3 +14,9 @@ Thumbs.db
 # Global logs
 *.log
 
+# Archivos de análisis y debug sueltos
+ANALISIS_INFORMES_SIN_IA.md
+COSTOS_IA_PRODUCCION.md
+nul
+universidades y centros no universitarios.txt
+

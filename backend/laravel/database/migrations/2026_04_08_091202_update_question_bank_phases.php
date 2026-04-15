@@ -17,6 +17,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         // MySQL no permite modificar ENUMs directamente, hay que usar DB::statement
         \DB::statement("ALTER TABLE question_bank MODIFY COLUMN phase ENUM('likert', 'checklist', 'comparative', 'activities', 'competencies', 'occupations') NOT NULL");
     }
@@ -26,6 +30,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         // Volver al enum original
         \DB::statement("ALTER TABLE question_bank MODIFY COLUMN phase ENUM('likert', 'checklist', 'comparative') NOT NULL");
     }

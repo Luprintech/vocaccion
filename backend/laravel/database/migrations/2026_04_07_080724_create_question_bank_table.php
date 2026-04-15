@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('question_bank', function (Blueprint $table) {
             $table->id();
             $table->enum('age_group', ['teen', 'young_adult', 'adult']);
-            $table->enum('phase', ['likert', 'checklist', 'comparative']);
+            $table->enum('phase', ['likert', 'checklist', 'comparative', 'activities', 'competencies', 'occupations']);
             $table->char('dimension', 1);         // R, I, A, S, E, C
             $table->char('dimension_b', 1)->nullable(); // For comparative: second dimension
             $table->float('weight', 4, 2)->default(1.0);
