@@ -513,6 +513,8 @@ export default function StudySearchPage() {
     community: searchParams.get('community') || '',
     double_degree: searchParams.get('double_degree') || '',
     distance_mode: searchParams.get('distance_mode') || '',
+    university_offer: searchParams.get('university_offer') || '',
+    university_modality: searchParams.get('university_modality') || '',
     ens_type: searchParams.get('ens_type') || '',
     idioma_name: searchParams.get('idioma_name') || '',
     // Oposiciones
@@ -633,7 +635,7 @@ export default function StudySearchPage() {
   useEffect(() => {
     setExpandedProgram(null);
     setCenterFilter('');
-  }, [query.search, query.province, query.academic_level, query.source, query.page, query.via, query.bachi_modality, query.bachi_adults, query.fp_family, query.fp_title, query.ownership, query.modality, query.locality, query.community, query.double_degree, query.distance_mode, query.ens_type, query.idioma_name]);
+  }, [query.search, query.province, query.academic_level, query.source, query.page, query.via, query.bachi_modality, query.bachi_adults, query.fp_family, query.fp_title, query.ownership, query.modality, query.locality, query.community, query.double_degree, query.distance_mode, query.university_offer, query.university_modality, query.ens_type, query.idioma_name]);
 
   useEffect(() => {
     if (!query.center_id && !query.catalog_center_id) {
@@ -706,6 +708,8 @@ export default function StudySearchPage() {
     next.delete('community');
     next.delete('double_degree');
     next.delete('distance_mode');
+    next.delete('university_offer');
+    next.delete('university_modality');
     next.delete('ens_type');
     next.delete('idioma_name');
     next.delete('comp_scope');
@@ -823,14 +827,13 @@ export default function StudySearchPage() {
 
         {/* Selector de tipo de estudio */}
         <div className="mt-6 rounded-2xl border border-white/80 bg-white/90 p-2 shadow-sm">
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
             {[
-              { value: 'all',                  label: 'Todos',              description: 'Todo el catálogo',                  icon: BookOpen },
-              { value: 'university',           label: 'Universidad',        description: 'Grado, Máster, Doctorado',           icon: GraduationCap },
-              { value: 'fp',                   label: 'FP',                 description: 'Ciclos y especialización',            icon: Building2 },
-              { value: 'bachillerato',         label: 'Bachillerato',       description: 'Presencial, nocturno, distancia',    icon: GraduationCap },
+              { value: 'all',                  label: 'Todos',            description: 'Todo el catálogo',                  icon: BookOpen },
+              { value: 'university',           label: 'Universidad',      description: 'Grado, Máster, Doctorado',           icon: GraduationCap },
+              { value: 'fp',                   label: 'FP',               description: 'Ciclos y especialización',            icon: Building2 },
+              { value: 'bachillerato',         label: 'Bachillerato',     description: 'Presencial, nocturno, distancia',    icon: GraduationCap },
               { value: 'educacion_secundaria', label: 'Otras enseñanzas', description: 'ESO, Idiomas, Artes, Deportivas...', icon: Users },
-              { value: 'oposiciones',         label: 'Oposiciones',     description: 'Convocatorias del BOE',              icon: Shield },
             ].map((option) => {
               const Icon = option.icon;
               const active = query.source === option.value;
@@ -839,7 +842,7 @@ export default function StudySearchPage() {
                   key={option.value}
                   type="button"
                   onClick={() => updateSource(option.value)}
-                  className={`shrink-0 rounded-2xl border px-4 py-4 text-left transition-all w-40 sm:w-44 ${active ? 'border-purple-300 bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg' : 'border-gray-200 bg-white text-gray-700 hover:border-purple-200 hover:bg-purple-50'}`}
+                  className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${active ? 'border-purple-300 bg-linear-to-r from-purple-600 to-indigo-600 text-white shadow-lg' : 'border-gray-200 bg-white text-gray-700 hover:border-purple-200 hover:bg-purple-50'}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`rounded-xl p-2 ${active ? 'bg-white/20' : 'bg-purple-100 text-purple-700'}`}>
@@ -940,52 +943,72 @@ export default function StudySearchPage() {
         {/* ─── Filtros secundarios de Universidad ─── */}
         {query.source === 'university' && (
           <div className="mt-5 rounded-2xl border border-purple-200 bg-purple-50 p-4 space-y-4">
-            <p className="text-sm font-semibold text-purple-900 flex items-center gap-2">
-              <GraduationCap className="w-4 h-4" /> Filtros de Universidad
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-sm font-semibold text-purple-900 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4" /> Filtros de Universidad
+              </p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
+                <a
+                  href="https://www.educacion.gob.es/ruct/home"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:text-purple-900 hover:underline"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> RUCT
+                </a>
+                <a
+                  href="https://www.ciencia.gob.es/qedu.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:text-purple-900 hover:underline"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> QEDU
+                </a>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-purple-800 mb-1.5">Tipo de oferta</label>
                 <select
-                  value={query.double_degree === '1' ? 'double' : ''}
-                  onChange={(e) => updateParam('double_degree', e.target.value === 'double' ? '1' : '')}
+                  value={query.university_offer}
+                  onChange={(e) => {
+                    const next = new URLSearchParams(searchParams);
+                    if (e.target.value) next.set('university_offer', e.target.value);
+                    else next.delete('university_offer');
+                    next.delete('double_degree');
+                    next.set('page', '1');
+                    setSearchParams(next);
+                  }}
                   className="w-full rounded-xl border border-purple-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-purple-400 text-sm text-gray-700"
                 >
-                  <option value="">Todos los títulos</option>
-                  <option value="double">🎓 Solo dobles grados / másteres</option>
+                  <option value="">Todos los tipos</option>
+                  <option value="grado">Grado</option>
+                  <option value="master">Máster</option>
+                  <option value="doctorado">Doctorado</option>
+                  <option value="doble_grado">Doble grado</option>
+                  <option value="doble_master">Doble máster</option>
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-purple-800 mb-1.5">Modalidad de impartición</label>
                 <select
-                  value={query.distance_mode === '1' ? 'distance' : ''}
-                  onChange={(e) => updateParam('distance_mode', e.target.value === 'distance' ? '1' : '')}
+                  value={query.university_modality}
+                  onChange={(e) => {
+                    const next = new URLSearchParams(searchParams);
+                    if (e.target.value) next.set('university_modality', e.target.value);
+                    else next.delete('university_modality');
+                    next.delete('distance_mode');
+                    next.set('page', '1');
+                    setSearchParams(next);
+                  }}
                   className="w-full rounded-xl border border-purple-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-purple-400 text-sm text-gray-700"
                 >
                   <option value="">Todas las modalidades</option>
-                  <option value="distance">🌐 Solo a distancia / online</option>
+                  <option value="online">Online</option>
+                  <option value="presencial">Presencial</option>
                 </select>
               </div>
-            </div>
-
-            <div className="pt-2 border-t border-purple-200 flex flex-wrap gap-x-5 gap-y-2">
-              <a
-                href="https://www.educacion.gob.es/ruct/home"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm font-semibold text-purple-700 hover:text-purple-900 hover:underline"
-              >
-                <ExternalLink className="w-4 h-4" /> RUCT — Registro de universidades oficiales
-              </a>
-              <a
-                href="https://www.ciencia.gob.es/qedu.html"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm font-semibold text-purple-700 hover:text-purple-900 hover:underline"
-              >
-                <ExternalLink className="w-4 h-4" /> QEDU — Notas de corte oficiales
-              </a>
             </div>
           </div>
         )}
@@ -995,9 +1018,19 @@ export default function StudySearchPage() {
         {/* ─── Filtros secundarios de Bachillerato ─── */}
         {showBachFilters && (
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-4">
-            <p className="text-sm font-semibold text-amber-900 flex items-center gap-2">
-              <GraduationCap className="w-4 h-4" /> Filtros de Bachillerato
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-sm font-semibold text-amber-900 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4" /> Filtros de Bachillerato
+              </p>
+              <a
+                href="https://www.educacion.gob.es/centros/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 hover:underline sm:self-start"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Buscador oficial de centros educativos
+              </a>
+            </div>
 
             {/* Input vía + chips */}
             <div>
@@ -1088,26 +1121,25 @@ export default function StudySearchPage() {
                 Solo para adultos / mayores de 25
               </button>
             </div>
-
-            <div className="pt-2 border-t border-amber-200">
-              <a
-                href="https://www.educacion.gob.es/centros/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 hover:underline"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Buscador oficial de centros educativos
-              </a>
-            </div>
           </div>
         )}
 
         {/* ─── Filtros secundarios de FP ─── */}
         {showFpFilters && (
           <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 space-y-4">
-            <p className="text-sm font-semibold text-blue-900 flex items-center gap-2">
-              <GraduationCap className="w-4 h-4" /> Filtros de {query.academic_level}
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-sm font-semibold text-blue-900 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4" /> Filtros de {query.academic_level}
+              </p>
+              <a
+                href="https://www.educacion.gob.es/centros/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline sm:self-start"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Buscador oficial de centros educativos
+              </a>
+            </div>
 
             {/* Familia profesional */}
             <div>
@@ -1140,26 +1172,25 @@ export default function StudySearchPage() {
                 inputClassName="border-blue-200 focus:ring-blue-400"
               />
             </div>
-
-            <div className="pt-2 border-t border-blue-200">
-              <a
-                href="https://www.educacion.gob.es/centros/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Buscador oficial de centros educativos
-              </a>
-            </div>
           </div>
         )}
 
         {/* ─── Sub-filtros de Otras enseñanzas (educacion_secundaria) ─── */}
         {query.source === 'educacion_secundaria' && (
           <div className="mt-5 rounded-2xl border border-teal-200 bg-teal-50 p-4 space-y-4">
-            <p className="text-sm font-semibold text-teal-900 flex items-center gap-2">
-              <BookOpen className="w-4 h-4" /> Filtros de Otras enseñanzas
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-sm font-semibold text-teal-900 flex items-center gap-2">
+                <BookOpen className="w-4 h-4" /> Filtros de Otras enseñanzas
+              </p>
+              <a
+                href="https://www.educacion.gob.es/centros/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-700 hover:text-teal-900 hover:underline sm:self-start"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Buscador oficial de centros educativos
+              </a>
+            </div>
 
             {/* Select: tipo de enseñanza */}
             <div>
@@ -1213,17 +1244,6 @@ export default function StudySearchPage() {
                 </select>
               </div>
             )}
-
-            <div className="pt-2 border-t border-teal-200">
-              <a
-                href="https://www.educacion.gob.es/centros/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-700 hover:text-teal-900 hover:underline"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Buscador oficial de centros educativos
-              </a>
-            </div>
           </div>
         )}
 
@@ -1416,14 +1436,14 @@ export default function StudySearchPage() {
               Comunidad: {query.community} ✕
             </button>
           )}
-          {query.double_degree === '1' && (
-            <button onClick={() => updateParam('double_degree', '')} className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
-              Solo dobles grados / másteres ✕
+          {query.university_offer && (
+            <button onClick={() => updateParam('university_offer', '')} className="rounded-full bg-purple-100 px-3 py-1 text-purple-700">
+              Tipo: {({ grado: 'Grado', master: 'Máster', doctorado: 'Doctorado', doble_grado: 'Doble grado', doble_master: 'Doble máster' })[query.university_offer] ?? query.university_offer} ✕
             </button>
           )}
-          {query.distance_mode === '1' && (
-            <button onClick={() => updateParam('distance_mode', '')} className="rounded-full bg-sky-100 px-3 py-1 text-sky-700">
-              A distancia / online ✕
+          {query.university_modality && (
+            <button onClick={() => updateParam('university_modality', '')} className="rounded-full bg-sky-100 px-3 py-1 text-sky-700">
+              Modalidad: {query.university_modality === 'online' ? 'Online' : 'Presencial'} ✕
             </button>
           )}
           {query.ens_type && (
@@ -1803,6 +1823,14 @@ export default function StudySearchPage() {
                                 <><ChevronDown className="w-4 h-4" /> Ver los {study.centers_count} centros</>
                               )}
                             </button>
+                            {study.centers[0] && (
+                              <Link
+                                to={`/mapa?search=${encodeURIComponent(study.centers[0].name)}&province=${encodeURIComponent(study.centers[0].province || '')}`}
+                                className="rounded-xl bg-orange-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-orange-700"
+                              >
+                                Ver en el mapa
+                              </Link>
+                            )}
                           </div>
                         ) : (
                           <div className="lg:w-60 flex flex-col gap-2 lg:shrink-0">
@@ -1911,6 +1939,12 @@ export default function StudySearchPage() {
                                         <ExternalLink className="h-3 w-3 shrink-0" /> Web del centro
                                       </a>
                                     )}
+                                    <Link
+                                      to={`/mapa?search=${encodeURIComponent(center.name)}&province=${encodeURIComponent(center.province || '')}`}
+                                      className="text-xs font-medium text-orange-700 hover:text-orange-800 hover:underline flex items-center gap-1.5"
+                                    >
+                                      <MapPin className="h-3 w-3 shrink-0" /> Ver en el mapa
+                                    </Link>
                                     <button
                                       onClick={() => updateParam('catalog_center_id', center.id)}
                                       className="mt-auto w-full rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-100 transition-colors"
