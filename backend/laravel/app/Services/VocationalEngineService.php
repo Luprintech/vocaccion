@@ -10,6 +10,7 @@ use App\Models\VocationalSession;
 use App\Models\VocationalProfile;
 use App\Models\Perfil;
 use App\Services\RiasecTestConfig;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -295,7 +296,8 @@ class VocationalEngineService
     {
         Log::info("[VocationalEngine] Using WarmUp Template Step {$step}");
 
-        $edad = 20; // TODO: derive from perfil.fecha_nacimiento
+        $fechaNac = $usuario->perfil->fecha_nacimiento ?? null;
+        $edad = $fechaNac ? (int) Carbon::parse($fechaNac)->age : 20;
         $isTeen = $edad < 18;
 
         return match ($step) {

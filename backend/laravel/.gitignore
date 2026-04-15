@@ -39,3 +39,23 @@ Thumbs.db
 
 # Coverage
 coverage
+
+# Raw catalog data (large source files — not committed to repo)
+# Directory structure (.gitkeep) and READMEs ARE tracked; data files are not
+/database/data/**/*.json
+/database/data/**/*.csv
+/database/data/**/*.xls
+/database/data/**/*.xlsx
+/database/data/backups/
+/database/backups/
+/database/data/siiu_raw/
+
+# Debug / utility scripts
+check_certs.php
+debug_geocode.php
+nul
+backup-database.bat
+restore-database.bat
+test-multiple.bat
+test-multiple.sh
+DATOS_FALTANTES.md

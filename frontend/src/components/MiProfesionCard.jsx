@@ -12,7 +12,8 @@
  */
 
 import React from 'react';
-import { Star, Briefcase, GraduationCap, Lightbulb, Edit3, Trash2, Check } from 'lucide-react';
+import { Star, Briefcase, GraduationCap, Lightbulb, Edit3, Trash2, Check, BookOpen, BadgeCheck, ArrowRight, UserCheck, TrendingUp } from 'lucide-react';
+import { getEmpleoByCareerTitle, formatSalario } from '@/data/empleo_sectores';
 
 export default function MiProfesionCard({ profesion, onCambiar, onEliminar, onVerItinerario }) {
   const {
@@ -23,8 +24,18 @@ export default function MiProfesionCard({ profesion, onCambiar, onEliminar, onVe
     formacion_recomendada,
     habilidades,
     estudios_comparados,
-    habilidades_comparadas
+    habilidades_comparadas,
+    cualificaciones_cncp,
+    cncp_loading,
   } = profesion;
+
+  const cncpArray = React.useMemo(() => {
+    if (!Array.isArray(cualificaciones_cncp)) return [];
+    return cualificaciones_cncp;
+  }, [cualificaciones_cncp]);
+
+  // Datos reales de inserción laboral (fuente: QEDU — Ministerio de Ciencia)
+  const empleoData = React.useMemo(() => getEmpleoByCareerTitle(titulo), [titulo]);
 
   // Convertir habilidades a array con comparación
   const habilidadesArray = React.useMemo(() => {
@@ -119,6 +130,28 @@ export default function MiProfesionCard({ profesion, onCambiar, onEliminar, onVe
             {titulo}
           </h3>
           <div className="h-1 w-20 bg-gradient-to-r from-purple-500 to-green-500 rounded-full mx-auto"></div>
+
+          {/* Datos reales de empleabilidad (QEDU) */}
+          {empleoData && (
+            <div className="flex flex-wrap justify-center gap-2 mt-4">
+              <span
+                title="% de titulados dados de alta en la Seguridad Social 4 años tras graduarse (fuente: QEDU — Ministerio de Ciencia)"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 cursor-help"
+              >
+                <UserCheck size={12} />
+                Empleabilidad {empleoData.tasa_afiliacion}%
+                <span className="text-blue-400 font-normal">· QEDU</span>
+              </span>
+              <span
+                title="Base de cotización media anual de titulados en este sector, 4 años tras graduarse (fuente: QEDU — Ministerio de Ciencia)"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-200 cursor-help"
+              >
+                <TrendingUp size={12} />
+                ~{formatSalario(empleoData.salario_medio)}
+                <span className="text-violet-400 font-normal">· datos reales</span>
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Imagen de la profesión */}
@@ -252,6 +285,73 @@ export default function MiProfesionCard({ profesion, onCambiar, onEliminar, onVe
             </div>
           )}
 
+          {/* Cualificaciones oficiales CNCP asociadas */}
+          <div className="bg-gradient-to-br from-purple-50 to-green-50 rounded-2xl p-5 border-2 border-purple-100" aria-live="polite">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-purple-600 to-green-600 rounded-xl flex items-center justify-center shadow-md">
+                <BookOpen className="w-5 h-5 text-white" strokeWidth={2.5} />
+              </div>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h4 className="font-bold text-purple-900 text-sm uppercase tracking-wide inline-flex items-center gap-2">
+                    Cualificaciones Oficiales (CNCP)
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white border border-purple-200 text-purple-700">
+                      {cncp_loading ? 'Cargando…' : `${cncpArray.length} asociadas`}
+                    </span>
+                  </h4>
+                </div>
+
+                {cncp_loading ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-10 bg-white/70 rounded-lg border border-purple-100 animate-pulse" />
+                    ))}
+                  </div>
+                ) : cncpArray.length > 0 ? (
+                  <>
+                    <div className="grid gap-2 mb-3">
+                      {cncpArray.slice(0, 4).map((q) => (
+                        <article key={q.codigo_cncp} className="bg-white rounded-xl border border-purple-100 p-3 shadow-sm">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-bold uppercase text-purple-700 tracking-wide">{q.codigo_cncp}</p>
+                              <p className="text-sm text-gray-800 leading-snug">{q.denominacion}</p>
+                            </div>
+                            {q.relacion_tipo && (
+                              <span
+                                className={`text-[10px] px-2 py-1 rounded-full border whitespace-nowrap ${
+                                  q.relacion_tipo === 'obligatoria'
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : q.relacion_tipo === 'recomendada'
+                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                    : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                }`}
+                              >
+                                {q.relacion_tipo}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                            <span className="inline-flex items-center gap-1"><BadgeCheck className="w-3.5 h-3.5" /> Nivel {q.nivel}</span>
+                            <span>Relevancia: <strong className="text-gray-800">{q.relacion_relevancia ?? 0}%</strong></span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      Estas cualificaciones oficiales se incorporan al itinerario para darte rutas más precisas y alineadas con el sistema educativo español.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-600">
+                    Aún no hay cualificaciones CNCP asociadas visibles para esta profesión. Puedes abrir el itinerario para generar contexto actualizado.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Botones de acción */}
           <div className="flex flex-col sm:flex-row gap-3 pt-4">
             <button
@@ -273,7 +373,8 @@ export default function MiProfesionCard({ profesion, onCambiar, onEliminar, onVe
               className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-6 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer"
             >
               <GraduationCap className="w-5 h-5" strokeWidth={2.5} />
-              Mi itinerario
+              Ver itinerario completo
+              <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
             </button>
           </div>
         </div>

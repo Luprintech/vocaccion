@@ -13,6 +13,10 @@ use App\Http\Controllers\ContactoController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\StripeWebhookController;
 use App\Http\Controllers\GuiaController;
+use App\Http\Controllers\ProfessionalQualificationController;
+use App\Http\Controllers\MapController;
+use App\Http\Controllers\PublicCatalogController;
+use App\Http\Controllers\DataUpdateController;
 
 
 // Rutas públicas (sin autenticación)
@@ -24,6 +28,24 @@ Route::get('/recursos', [App\Http\Controllers\RecursoController::class, 'index']
 Route::get('/recursos/{slug}', [App\Http\Controllers\RecursoController::class, 'showPublic']);
 Route::post('/recursos/{slug}/view', [App\Http\Controllers\RecursoController::class, 'incrementarVisualizacion']);
 Route::post('/recursos/{slug}/download', [App\Http\Controllers\RecursoController::class, 'incrementarDescarga']);
+
+// Mapa Interactivo (Público)
+Route::get('/centers/map', [MapController::class, 'getCenters']);
+Route::get('/centers/map/filters', [MapController::class, 'filters']);
+Route::get('/catalog-centers/{id}/programs', [MapController::class, 'catalogCenterPrograms']);
+
+// Catálogo público de cursos y estudios
+Route::get('/home/featured-courses', [PublicCatalogController::class, 'featuredCourses']);
+Route::get('/courses', [PublicCatalogController::class, 'courses']);
+Route::get('/studies/filters', [PublicCatalogController::class, 'studyFilters']);
+Route::get('/studies/search', [PublicCatalogController::class, 'searchStudies']);
+Route::get('/studies/locality-suggestions', [PublicCatalogController::class, 'localitySuggestions']);
+Route::get('/studies/search-suggestions', [PublicCatalogController::class, 'searchSuggestions']);
+Route::get('/centers/{id}/studies', [PublicCatalogController::class, 'centerStudies']);
+Route::get('/competitions', [PublicCatalogController::class, 'competitions']);
+
+// Geocodificación de direcciones (público)
+Route::get('/geocode', [App\Http\Controllers\GeocodeController::class, 'geocode']);
 
 // =====================================================
 // STRIPE WEBHOOK (Público - Stripe IP validated)
@@ -57,9 +79,20 @@ Route::middleware(['web'])->group(function () {
 // Rutas protegidas (requieren autenticación con Sanctum)
 Route::middleware('auth:sanctum')->group(function () {
 
-    // Itinerario Académico
+    // Itinerario Académico (legacy - sistema antiguo del test)
     Route::post('itinerario/generar', [App\Http\Controllers\ItinerarioController::class, 'generar']);
     Route::get('test-vocacional/pdf/{id}', [App\Http\Controllers\ItinerarioController::class, 'descargarPDF']);
+    
+    // Itinerarios Formativos por Profesión (NUEVO - Sistema de matching mejorado)
+    Route::post('profesion/{profesionId}/itinerario', [App\Http\Controllers\ItinerarioProfesionController::class, 'generar']);
+    Route::post('profesion/itinerario-by-title', [App\Http\Controllers\ItinerarioProfesionController::class, 'generarByTitulo']);
+    Route::get('itinerario/historial', [App\Http\Controllers\ItinerarioProfesionController::class, 'historial']);
+    Route::get('itinerario/{id}', [App\Http\Controllers\ItinerarioProfesionController::class, 'show']);
+
+    // Cualificaciones profesionales (CNCP) asociadas a profesiones del catálogo
+    Route::get('profesion/{profesionId}/cualificaciones', [ProfessionalQualificationController::class, 'byProfession']);
+    Route::post('profesion/cualificaciones-by-title', [ProfessionalQualificationController::class, 'byTitle']);
+    Route::get('cualificaciones', [ProfessionalQualificationController::class, 'index']);
 
     // =====================================================
     // PERFIL Y AUTENTICACIÓN
@@ -67,8 +100,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('profile', [AuthController::class, 'profile']);
     Route::put('profile', [AuthController::class, 'updateProfile']);
     Route::post('profile', [AuthController::class, 'updateProfile']); // Para soportar FormData con imagen
+    Route::put('profile/password', [AuthController::class, 'updatePassword']);
     Route::delete('profile/image', [AuthController::class, 'deleteProfileImage']); // Eliminar imagen de perfil
     Route::post('logout', [AuthController::class, 'logout']);
+
+    // Actualización asíncrona de datasets (requiere queue worker)
+    Route::get('data-updates', [DataUpdateController::class, 'index']);
+    Route::post('data-updates', [DataUpdateController::class, 'store']);
+    Route::get('data-updates/{id}', [DataUpdateController::class, 'show']);
 
     // Testimonios (crear, editar, eliminar)
     Route::post('testimonios', [App\Http\Controllers\TestimonioController::class, 'store']);
@@ -112,7 +151,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Rutas de análisis y resultados (v1 + v2)
         Route::post('/analizar-respuestas', [TestController::class, 'analizarResultados']); // Analiza respuestas finales
-        Route::post('/procesar-resultados', [TestController::class, 'procesarResultados']); // Procesa profesiones (si se mantiene)
         Route::post('/generar-imagen', [TestController::class, 'generarImagenPorProfesion']); // Genera imagen IA
     });
 

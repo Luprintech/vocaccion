@@ -448,16 +448,27 @@ class UserTestController extends Controller
                             unset($profesion);
                         }
 
+                        // Snapshot scores for this result — profile may change on retake
+                        $recoveryScores = [
+                            'R' => (float) ($profileData['realistic_score']    ?? 0),
+                            'I' => (float) ($profileData['investigative_score'] ?? 0),
+                            'A' => (float) ($profileData['artistic_score']      ?? 0),
+                            'S' => (float) ($profileData['social_score']        ?? 0),
+                            'E' => (float) ($profileData['enterprising_score']  ?? 0),
+                            'C' => (float) ($profileData['conventional_score']  ?? 0),
+                        ];
+
                         // Persistir resultados para futuros accesos
                         DB::table('test_results')->insert([
-                            'usuario_id' => $user->id,
+                            'usuario_id'    => $user->id,
                             'test_session_id' => null,
-                            'answers' => json_encode($historyLog),
-                            'result_text' => $reportMarkdown,
-                            'profesiones' => json_encode($profesiones),
-                            'saved_at' => now(),
-                            'created_at' => now(),
-                            'updated_at' => now(),
+                            'answers'       => json_encode($historyLog),
+                            'result_text'   => $reportMarkdown,
+                            'profesiones'   => json_encode($profesiones),
+                            'riasec_scores' => json_encode($recoveryScores),
+                            'saved_at'      => now(),
+                            'created_at'    => now(),
+                            'updated_at'    => now(),
                         ]);
 
                         // Recargar resultados recién insertados
@@ -507,7 +518,38 @@ class UserTestController extends Controller
             }
             unset($result);
 
-            return response()->json(['success' => true, 'results' => $results]);
+            // Resolve RIASEC scores for the most recent result.
+            // Priority: snapshot column on the result row (immutable, set at generation time).
+            // Fallback: live VocationalProfile (for old records that predate the column).
+            $riasecScores = null;
+            $latestResult = $results->first();
+
+            if ($latestResult && !empty($latestResult->riasec_scores)) {
+                $riasecScores = json_decode($latestResult->riasec_scores, true);
+            }
+
+            if (!$riasecScores) {
+                $vocProfile = VocationalProfile::where('usuario_id', $user->id)->first();
+                if ($vocProfile) {
+                    $riasecScores = [
+                        'R' => (float) ($vocProfile->realistic_score    ?? 0),
+                        'I' => (float) ($vocProfile->investigative_score ?? 0),
+                        'A' => (float) ($vocProfile->artistic_score      ?? 0),
+                        'S' => (float) ($vocProfile->social_score        ?? 0),
+                        'E' => (float) ($vocProfile->enterprising_score  ?? 0),
+                        'C' => (float) ($vocProfile->conventional_score  ?? 0),
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success'       => true,
+                'results'       => $results,
+                'riasec_scores' => $riasecScores,
+                'profesiones'   => ($latestResult && !empty($latestResult->profesiones))
+                    ? json_decode($latestResult->profesiones, true)
+                    : null,
+            ]);
         } catch (\Exception $e) {
             Log::error('Error en listResults: ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
             return response()->json(['success' => false, 'error' => 'Error al obtener resultados'], 500);

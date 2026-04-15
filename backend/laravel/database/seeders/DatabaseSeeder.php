@@ -24,10 +24,9 @@ class DatabaseSeeder extends Seeder
     {
         echo "\n Iniciando seeders...\n";
 
-        // LEER CONTRASEÑAS DESDE .ENV O GENERAR ALEATORIAS
-        // Si no están definidas en el .env, se genera una segura de 16 caracteres.
-        $passwordAdmin = env('SEEDER_ADMIN_PASSWORD') ?: Str::random(16);
-        $passwordOrientador = env('SEEDER_ORIENTADOR_PASSWORD') ?: Str::random(16);
+        // CONTRASEÑAS PARA DESARROLLO (EN PRODUCCIÓN USAR .ENV)
+        $passwordAdmin = '12345678';
+        $passwordOrientador = '12345678';
 
 
         // ==========================================
@@ -46,7 +45,7 @@ class DatabaseSeeder extends Seeder
         echo "\nCreando o actualizando usuarios...\n";
 
         $admin = Usuario::updateOrCreate(
-        ['email' => 'admin@vocaccion.com'],
+        ['email' => 'admin@vocaccion.es'],
         [
             'nombre' => 'Admin VocAcción',
             'password' => Hash::make($passwordAdmin),
@@ -58,13 +57,13 @@ class DatabaseSeeder extends Seeder
         if (!$admin->roles()->where('rol_id', 1)->exists()) {
             $admin->roles()->attach(1);
         }
-        echo "   Admin actualizado: admin@vocaccion.com / $passwordAdmin\n";
+        echo "   Admin actualizado: admin@vocaccion.es / $passwordAdmin\n";
 
         // ==========================================
         // 4. CREAR O ACTUALIZAR USUARIO ORIENTADOR
         // ==========================================
         $orientador = Usuario::updateOrCreate(
-        ['email' => 'orientador@vocaccion.com'],
+        ['email' => 'orientador@vocaccion.es'],
         [
             'nombre' => 'Carlos García - Orientador',
             'password' => Hash::make($passwordOrientador),
@@ -76,9 +75,25 @@ class DatabaseSeeder extends Seeder
         if (!$orientador->roles()->where('rol_id', 2)->exists()) {
             $orientador->roles()->attach(2);
         }
-        echo "   Orientador actualizado: orientador@vocaccion.com / $passwordOrientador\n";
+        echo "   Orientador actualizado: orientador@vocaccion.es / $passwordOrientador\n";
 
+        // ==========================================
+        // 5. CREAR O ACTUALIZAR USUARIO ESTUDIANTE
+        // ==========================================
+        $estudiante = Usuario::updateOrCreate(
+        ['email' => 'estudiante@vocaccion.es'],
+        [
+            'nombre' => 'María López - Estudiante',
+            'password' => Hash::make('12345678'),
+            'email_verified_at' => now(),
+        ]
+        );
 
+        // Asignar rol estudiante si no lo tiene
+        if (!$estudiante->roles()->where('rol_id', 3)->exists()) {
+            $estudiante->roles()->attach(3);
+        }
+        echo "   Estudiante actualizado: estudiante@vocaccion.es / 12345678\n";
 
         // ==========================================
         // 6. LLAMAR AL SEEDER DE GUÍAS (DESPUÉS DE CREAR USUARIOS)
@@ -95,11 +110,17 @@ class DatabaseSeeder extends Seeder
         // ==========================================
         $this->call(QuestionBankSeeder::class);
 
+        // ==========================================
+        // 9. NOTAS DE CORTE UNIVERSITARIAS (QEDU)
+        // ==========================================
+        $this->call(UniversityCutoffGradeSeeder::class);
+
 
 
         echo "\n Seeders completados!\n";
         echo "\n Credenciales de prueba:\n";
-        echo "   Admin:       admin@vocaccion.com / $passwordAdmin\n";
-        echo "   Orientador:  orientador@vocaccion.com / $passwordOrientador\n\n";
+        echo "   Admin:       admin@vocaccion.es / $passwordAdmin\n";
+        echo "   Orientador:  orientador@vocaccion.es / $passwordOrientador\n";
+        echo "   Estudiante:  estudiante@vocaccion.es / 12345678\n\n";
     }
 }

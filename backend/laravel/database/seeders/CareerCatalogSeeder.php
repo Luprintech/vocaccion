@@ -1547,6 +1547,13 @@ class CareerCatalogSeeder extends Seeder
                 'habilidades_clave' => json_encode(['Análisis de la conducta', 'Investigación', 'Pensamiento crítico', 'Legislación penal']),
                 'activo' => true,
             ],
+
+            // ══════════════════════════════════════════════
+            // EXPANSIÓN FASE 3: PROFESIONES EMERGENTES Y SUB-ESPECIALIDADES
+            // Añadidas: Abril 2026
+            // Total nuevas: +51 profesiones → Catálogo ampliado a 120
+            // ══════════════════════════════════════════════
+            ...NewCareersExpansion::getCareersExpansion(),
         ];
     }
 }

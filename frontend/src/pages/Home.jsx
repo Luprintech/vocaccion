@@ -29,7 +29,7 @@
  */
 
 import { Link } from "react-router-dom";
-import { Bot, BrainCircuit, Search, BookOpen, Sparkles, TrendingUp, Users, Award, GraduationCap, Target, Lightbulb, Plus, X } from "lucide-react";
+import { Bot, BrainCircuit, Search, BookOpen, Sparkles, TrendingUp, Users, Award, GraduationCap, Target, Lightbulb, Plus, X, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -111,8 +111,6 @@ const testimonials = [
 
 export default function Home() {
   const { isAuthenticated, user } = useAuth();
-  const heroImage = "/images/home/orientación + portátil.jpg";
-  const riasecImage = "/images/home/riasec.png";
   const [reviews, setReviews] = useState(testimonials);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reviewForm, setReviewForm] = useState({ mensaje: "", edad: "" });
@@ -171,8 +169,7 @@ export default function Home() {
         
         {/* Contenido principal */}
         <div className="relative container mx-auto px-4">
-          <div className="grid lg:grid-cols-2 gap-10 items-center">
-            <div className="text-center lg:text-left">
+          <div className="mx-auto max-w-4xl text-center">
               {/* Badge superior */}
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-lg border border-purple-100 mb-6 animate-float">
                 <Sparkles className="w-4 h-4 text-purple-600" />
@@ -192,12 +189,12 @@ export default function Home() {
                 </span>
               </h1>
 
-              <p className="mt-6 max-w-2xl text-lg md:text-xl text-gray-600 leading-relaxed mx-auto lg:mx-0">
+              <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-600 md:text-xl">
                 VocAcción te guía paso a paso para que descubras qué estudios o profesiones encajan contigo,
                 combinando test RIASEC, informe personalizado y recursos reales de orientación.
               </p>
 
-              <div className="mt-5 flex flex-wrap gap-2 justify-center lg:justify-start">
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
                 {['Modelo RIASEC', 'Guarda y retoma', 'Informe profesional'].map((chip) => (
                   <span key={chip} className="px-3 py-1.5 rounded-full bg-white border border-purple-100 text-xs font-semibold text-purple-700 shadow-sm">
                     {chip}
@@ -206,7 +203,7 @@ export default function Home() {
               </div>
 
               {/* Botones de CTA */}
-              <div className="mt-8 flex flex-col sm:flex-row items-center lg:items-start gap-4">
+              <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
                 <Button
                   size="lg"
                   className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300 px-8 py-6 text-base font-semibold group"
@@ -227,20 +224,18 @@ export default function Home() {
                     Explorar recursos
                   </Link>
                 </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-2 border-indigo-500 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-600 shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 px-8 py-6 text-base font-semibold"
+                  asChild
+                >
+                  <Link to="/mapa" className="flex items-center gap-2">
+                    <MapPin className="w-5 h-5" />
+                    Mapa de Centros
+                  </Link>
+                </Button>
               </div>
-            </div>
-
-            <div className="relative">
-              <div className="absolute -inset-3 bg-gradient-to-br from-purple-300/40 to-green-300/40 blur-2xl rounded-3xl"></div>
-              <div className="relative rounded-3xl overflow-hidden border border-purple-100 shadow-2xl bg-white">
-                <img
-                  src={heroImage}
-                  alt="Orientación vocacional con portátil"
-                  className="w-full h-[320px] md:h-[420px] object-cover object-center"
-                  fetchPriority="high"
-                />
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -248,19 +243,7 @@ export default function Home() {
       {/* SECCIÓN RIASEC - Explicación visual del modelo */}
       <section className="w-full py-14 md:py-16 bg-white border-y border-purple-100">
         <div className="container mx-auto px-4">
-          <div className="grid lg:grid-cols-2 gap-10 items-center">
-            <div className="order-1 lg:order-1">
-              <div className="group relative w-full max-w-[360px] md:max-w-[420px] aspect-square mx-auto rounded-3xl overflow-hidden border border-purple-100 shadow-xl bg-white">
-                <img
-                  src={riasecImage}
-                  alt="Modelo RIASEC de orientación vocacional"
-                  className="w-full h-full object-contain object-center p-2 md:p-3 transition-transform duration-500 ease-out group-hover:scale-105"
-                  loading="lazy"
-                />
-              </div>
-            </div>
-
-            <div className="order-2 lg:order-2">
+          <div className="mx-auto max-w-4xl text-center">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-700 font-semibold text-sm mb-5">
                 <Sparkles className="w-4 h-4" />
                 ¿Qué es el modelo RIASEC?
@@ -276,7 +259,7 @@ export default function Home() {
                 Emprendedor y Convencional) y los conecta con profesiones y rutas formativas reales.
               </p>
 
-              <div className="flex flex-wrap gap-2 mb-6">
+              <div className="mb-6 flex flex-wrap justify-center gap-2">
                 {["R · Realista", "I · Investigador", "A · Artístico", "S · Social", "E · Emprendedor", "C · Convencional"].map((item) => (
                   <span key={item} className="px-3 py-1.5 rounded-full bg-gray-50 border border-gray-200 text-xs md:text-sm font-semibold text-gray-700">
                     {item}
@@ -287,7 +270,6 @@ export default function Home() {
               <Button asChild className="bg-linear-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white shadow-lg">
                 <Link to="/testintro">Ver mi perfil RIASEC</Link>
               </Button>
-            </div>
           </div>
         </div>
       </section>

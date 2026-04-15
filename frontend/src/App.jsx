@@ -21,6 +21,10 @@ import './App.css'
 
 // Páginas principales
 import Home from "./pages/Home.jsx";
+import Courses from "./pages/Courses.jsx";
+import StudySearchPage from "./pages/StudySearchPage.jsx";
+import OposicionesPage from "./pages/formacion/OposicionesPage.jsx";
+import CertificadosPage from "./pages/formacion/CertificadosPage.jsx";
 import MainLayout from "./layouts/MainLayout.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 import Servicios from "./pages/Servicios.jsx";
@@ -56,6 +60,7 @@ import CookiePolicy from "./pages/legal/CookiePolicy.jsx";
 import LegalNotice from "./pages/legal/LegalNotice.jsx";
 
 //Test
+import MapaCentros from "./pages/MapaCentros.jsx";
 import TestVocacional from "./pages/test/TestVocacional.jsx";
 import TestIntro from "./pages/test/TestIntro.jsx";
 import TestAnalisis from "./pages/test/TestAnalisis.jsx";
@@ -110,6 +115,7 @@ function App() {
 
           {/* PÁGINA PRINCIPAL - Completamente desarrollada */}
           <Route path="/" element={<Home />} />
+          <Route path="/cursos" element={<Courses />} />
           
           <Route path="/testimonios" element={<Testimonios />} />
 
@@ -142,7 +148,10 @@ function App() {
           } />
 
           {/* Mapa interactivo */}
-
+          <Route path="/mapa" element={<MapaCentros />} />
+          <Route path="/estudios" element={<StudySearchPage />} />
+          <Route path="/oposiciones" element={<OposicionesPage />} />
+          <Route path="/certificados" element={<CertificadosPage />} />
 
           {/* PÁGINA TEST - protegida */}
           {/* /testintro: Página introductoria que explica el propósito del test */}

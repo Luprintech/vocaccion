@@ -438,7 +438,12 @@ EOT;
             foreach ($matchedCareers as $idx => $career) {
                 $num = $idx + 1;
                 $salidas = is_array($career['salidas'] ?? null) ? implode(', ', $career['salidas']) : ($career['salidas'] ?? '');
+                $dimsLine = '';
+                if (!empty($career['career_top_dims'])) {
+                    $dimsLine = "\n   Dims RIASEC clave de la profesión: " . implode('-', $career['career_top_dims']);
+                }
                 $careersBlock .= "\n{$num}. {$career['titulo']} (Sector: {$career['sector']}, Match: {$career['match_porcentaje']}%)"
+                    . $dimsLine
                     . "\n   Salidas: {$salidas}"
                     . "\n   Formación: " . ($career['ruta_formativa'] ?? $career['nivel_formacion'] ?? '');
             }
@@ -494,6 +499,9 @@ REGLAS:
 - NO inventes profesiones ni porcentajes.
 - Mantén superpowers en exactamente 5 elementos.
 - Frases claras, sin markdown, sin texto fuera del JSON.
+- Si el campo "context" incluye bio, hobbies, education o job: úsalos para personalizar el portrait y el mentor (menciona intereses reales, nivel formativo actual, experiencia laboral si existe). NO ignores este contexto.
+- El portrait debe sonar como si conocieras a la persona, no como un texto genérico de código Holland.
+- El mentor debe hablar directamente al usuario, reconociendo su situación actual (nivel de estudios, intereses, trabajo) y motivarlo hacia la siguiente acción concreta.
 EOT;
 
         return $this->callGemini($prompt, true, $systemInstruction, 1400);
@@ -556,10 +564,31 @@ EOT;
     }
 
     /**
+     * PROMPT: ITINERARIO ACADÉMICO
+     * Genera un itinerario académico personalizado para una profesión.
+     * Devuelve JSON con estructura vias_formativas[].
+     *
+     * @param string $prompt Prompt construido por ItinerarioController::buildPrompt()
+     * @return array Itinerario parseado (vias_formativas, resumen, etc.)
+     */
+    public function generateItinerario(string $prompt): array
+    {
+        // Itinerario JSON is large: 3 vias × 5 pasos + 9 skills + 6 recomendaciones ≈ 12k+ tokens
+        $result = $this->callGemini($prompt, true, '', 16384);
+
+        if (empty($result)) {
+            Log::warning('generateItinerario: respuesta vacía de Gemini');
+            return [];
+        }
+
+        return $result;
+    }
+
+    /**
      * Método base para llamar a la API con estrategia robusta.
      * @param int $maxOutputTokens  Número máximo de tokens de salida (default 4096)
      */
-    protected function callGemini(
+    public function callGemini(
         string $prompt,
         bool $jsonMode = false,
         string $systemInstruction = '',

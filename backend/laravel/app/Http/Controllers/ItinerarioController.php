@@ -9,6 +9,7 @@ use App\Models\ItinerarioBase;
 use App\Models\ItinerarioGenerado;
 use App\Models\Profesion;
 use App\Models\TestSesion;
+use App\Models\UniversityCutoffGrade;
 use App\Models\VocationalSession;
 use App\Models\VocationalProfile;
 use App\Services\GeminiService;
@@ -166,28 +167,48 @@ class ItinerarioController extends Controller
             ->first();
 
         if ($itinerarioGuardado) {
-            // Devolver itinerario desde caché (ya parseado como array por el casting)
-            \Log::info('✅ Itinerario recuperado de caché - ' . now()->format('H:i:s'));
-
-            // Obtener imagen de la profesión
-            $imagenUrl = optional($user->objetivo)->profesion->imagen_url ?? null;
-
-            // Recalcular nivel estudios actual mirando formaciones
-            $estudiosActualesKey = $this->getHighestEducationLevel($user);
             $itinerarioParseado = $itinerarioGuardado->texto_html;
 
-            // Aplicar autocompletado dinámico
-            $itinerarioFinal = $this->markCompletedSteps($itinerarioParseado, $estudiosActualesKey);
+            // Guard: si el caché está vacío o le faltan vias_formativas, eliminarlo y regenerar
+            $vias = $itinerarioParseado['vias_formativas'] ?? [];
+            if (empty($itinerarioParseado) || empty($vias)) {
+                \Log::warning('[ItinerarioCache] Caché corrupta detectada, eliminando y regenerando', [
+                    'usuario_id' => $user->id,
+                    'profesion' => $profesion,
+                ]);
+                $itinerarioGuardado->delete();
+                // Continuar con la generación normal (no hacer return aquí)
+            } else {
+                // Devolver itinerario desde caché (ya parseado como array por el casting)
+                \Log::info('[ItinerarioProfesion] Retornando itinerario cacheado', [
+                    'usuario_id' => $user->id,
+                    'profesion_id' => optional($user->objetivo)->profesion_id,
+                    'generado_en' => $itinerarioGuardado->created_at,
+                ]);
 
-            return response()->json([
-                'success' => true,
-                'profesion' => $profesion,
-                'ccaa' => $itinerarioGuardado->ccaa,
-                'imagen_url' => $imagenUrl,
-                'cached' => true,
-                'test_id' => $testId, // INYECTAMOS TEST_ID
-                'itinerario' => $itinerarioFinal
-            ]);
+                // Obtener imagen de la profesión
+                $imagenUrl = optional($user->objetivo)->profesion->imagen_url ?? null;
+
+                // Recalcular nivel estudios actual mirando formaciones
+                $estudiosActualesKey = $this->getHighestEducationLevel($user);
+
+                // Aplicar autocompletado dinámico
+                $itinerarioFinal = $this->markCompletedSteps($itinerarioParseado, $estudiosActualesKey);
+
+                // Enriquecer con notas de corte de la CCAA
+                $notasCorte = $this->buildNotasCorteMap($itinerarioFinal, $itinerarioGuardado->ccaa);
+
+                return response()->json([
+                    'success' => true,
+                    'profesion' => $profesion,
+                    'ccaa' => $itinerarioGuardado->ccaa,
+                    'imagen_url' => $imagenUrl,
+                    'cached' => true,
+                    'test_id' => $testId,
+                    'notas_corte' => $notasCorte,
+                    'itinerario' => $itinerarioFinal
+                ]);
+            }
         }
 
         // SI NO EXISTE, GENERAR NUEVO ITINERARIO CON GEMINI
@@ -216,6 +237,18 @@ class ItinerarioController extends Controller
         // Llamar al servicio Gemini (ahora devuelve JSON parseado)
         $resultado = $gemini->generateItinerario($prompt);
 
+        // Guard: si Gemini devolvió vacío o sin vias_formativas, no guardar y devolver error
+        if (empty($resultado) || empty($resultado['vias_formativas'] ?? [])) {
+            \Log::error('[ItinerarioGenerator] Error generando itinerario', [
+                'profesion_id' => optional($prof)->id,
+                'error' => 'Respuesta de Gemini sin rutas válidas',
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo generar el itinerario. Por favor, inténtalo de nuevo.',
+            ], 500);
+        }
+
         // Llamar a helper para marcar pasos completados
         $itinerarioFinal = $this->markCompletedSteps($resultado, $estudios);
 
@@ -227,10 +260,16 @@ class ItinerarioController extends Controller
             'texto_html' => $itinerarioFinal // Array a JSON
         ]);
 
-        \Log::info('Itinerario guardado en caché');
+        \Log::info('[ItinerarioGenerator] Itinerario guardado en caché', [
+            'usuario_id' => $user->id,
+            'profesion' => $profesion,
+        ]);
 
         // Obtener imagen de la profesión
         $imagenUrl = optional($user->objetivo)->profesion->imagen_url ?? null;
+
+        // Enriquecer con notas de corte de la CCAA
+        $notasCorte = $this->buildNotasCorteMap($itinerarioFinal, $ccaa);
 
         return response()->json([
             'success' => true,
@@ -239,8 +278,99 @@ class ItinerarioController extends Controller
             'imagen_url' => $imagenUrl,
             'cached' => false,
             'test_id' => $testId, // INYECTAMOS TEST_ID
+            'notas_corte' => $notasCorte,
             'itinerario' => $itinerarioFinal
         ]);
+    }
+
+    /**
+     * Extrae todos los nombres de opciones de grado/máster del itinerario y busca
+     * sus notas de corte en university_cutoff_grades, filtrando por CCAA si se indica.
+     *
+     * Devuelve un mapa: "Grado en Medicina" => [
+     *   { universidad, centro, nota, provincia, ccaa, anio },
+     *   ...
+     * ]
+     * Cada entrada es la nota específica de esa titulación en una universidad concreta.
+     */
+    private function buildNotasCorteMap(array $itinerario, ?string $ccaa): array
+    {
+        // 1. Recoger todos los nombres de opciones de los pasos de tipo grado/máster
+        $opciones = [];
+        foreach ($itinerario['vias_formativas'] ?? [] as $via) {
+            foreach ($via['pasos'] ?? [] as $paso) {
+                $titulo = mb_strtolower($paso['titulo'] ?? '');
+                $esGradoOMaster = str_contains($titulo, 'grado')
+                    || str_contains($titulo, 'universitario')
+                    || str_contains($titulo, 'máster')
+                    || str_contains($titulo, 'master')
+                    || str_contains($titulo, 'especialización');
+
+                if ($esGradoOMaster) {
+                    foreach ($paso['opciones'] ?? [] as $opcion) {
+                        $nombre = trim($opcion['nombre'] ?? '');
+                        if ($nombre !== '' && !in_array($nombre, $opciones)) {
+                            $opciones[] = $nombre;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (empty($opciones)) {
+            return [];
+        }
+
+        // 2. Construir query LIKE OR — seleccionar campos de universidad y nota
+        $query = UniversityCutoffGrade::conNota()
+            ->select(
+                'titulacion',
+                'nota_corte',
+                'anio',
+                'ccaa',
+                'provincia',
+                'nombre_universidad',
+                'nombre_centro'
+            );
+
+        // Si tenemos CCAA, filtrar por esa comunidad
+        if ($ccaa) {
+            $query->where('ccaa', 'like', "%{$ccaa}%");
+        }
+
+        // Filtrar por nombres similares (LIKE OR)
+        $query->where(function ($q) use ($opciones) {
+            foreach ($opciones as $nombre) {
+                $q->orWhere('titulacion', 'like', "%{$nombre}%");
+            }
+        });
+
+        // Ordenar de menor a mayor nota (las más accesibles primero)
+        $resultados = $query->orderBy('nota_corte', 'asc')->get();
+
+        // 3. Construir mapa: nombre_opcion => [ {universidad, centro, nota, ...}, ... ]
+        $map = [];
+        foreach ($opciones as $nombre) {
+            $matches = $resultados->filter(function ($row) use ($nombre) {
+                return stripos($row->titulacion, $nombre) !== false
+                    || stripos($nombre, $row->titulacion) !== false;
+            });
+
+            if ($matches->isNotEmpty()) {
+                $map[$nombre] = $matches->map(function ($row) {
+                    return [
+                        'universidad' => $row->nombre_universidad ?? 'Universidad desconocida',
+                        'centro'      => $row->nombre_centro,
+                        'nota'        => round((float) $row->nota_corte, 3),
+                        'provincia'   => $row->provincia,
+                        'ccaa'        => $row->ccaa,
+                        'anio'        => $row->anio,
+                    ];
+                })->values()->toArray();
+            }
+        }
+
+        return $map;
     }
 
     /**

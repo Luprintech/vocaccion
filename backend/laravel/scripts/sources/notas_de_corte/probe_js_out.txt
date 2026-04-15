@@ -1,0 +1,15 @@
+﻿JS refs with 'qedu': []
+
+Patterns with 'qedu' (287 found):
+python : Traceback (most recent call last):
+En línea: 1 Carácter: 1
++ python probe_js.py 2>&1 | Out-File -Encoding utf8 probe_js_out.txt; G ...
++ ~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\guada\Desktop\Vocaccion\vocaccion\backend\laravel\scripts\sources\notas_de_corte\probe_js.py", line 
+26, in <module>
+    for p in set(qedu_patterns)[:20]:
+             ~~~~~~~~~~~~~~~~~~^^^^^
+TypeError: 'set' object is not subscriptable

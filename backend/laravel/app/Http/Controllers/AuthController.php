@@ -462,6 +462,49 @@ class AuthController extends Controller
         ], 200);
     }
 
+    public function updatePassword(Request $request)
+    {
+        /** @var Usuario|null $usuario */
+        $usuario = $request->user();
+
+        if (!$usuario) {
+            return response()->json(['error' => 'Usuario no autenticado'], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:8|different:current_password|confirmed',
+        ], [
+            'current_password.required' => 'Debes indicar tu contraseña actual.',
+            'new_password.required' => 'Debes indicar una nueva contraseña.',
+            'new_password.min' => 'La nueva contraseña debe tener al menos 8 caracteres.',
+            'new_password.different' => 'La nueva contraseña debe ser distinta a la actual.',
+            'new_password.confirmed' => 'La confirmación de la nueva contraseña no coincide.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        if (!Hash::check($request->current_password, $usuario->password)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'La contraseña actual no es correcta.',
+            ], 422);
+        }
+
+        $usuario->password = Hash::make($request->new_password);
+        $usuario->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Contraseña actualizada correctamente.',
+        ], 200);
+    }
+
     /**
      * Normaliza la ruta guardada para disco public.
      */

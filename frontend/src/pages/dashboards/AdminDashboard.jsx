@@ -232,6 +232,12 @@ function AdminDashboard() {
               >
                 Ver estadísticas
               </button>
+			  <button
+				onClick={() => navigate('/perfil#seguridad')}
+				className="inline-flex items-center justify-center gap-2 px-8 py-4 border-2 border-slate-400 text-slate-700 rounded-lg font-semibold hover:bg-slate-50 transition-all duration-300 cursor-pointer"
+			  >
+				Cambiar contraseña
+			  </button>
             </div>
           </div>
         </section>

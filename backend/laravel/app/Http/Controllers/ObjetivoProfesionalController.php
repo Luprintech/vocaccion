@@ -67,14 +67,16 @@ class ObjetivoProfesionalController extends Controller
         if ($existing) {
             // Si es la misma profesion, devolver éxito (idempotente)
             if ($existing->profesion_id == $profesion_id) {
-                return response()->json(['success' => true, 'objetivo' => $existing]);
+                return response()->json(['success' => true, 'objetivo' => $existing->load('profesion')]);
             }
 
-            // Si intenta guardar una profesión distinta mientras ya tiene una, bloquear
-            return response()->json([
-                'success' => false,
-                'message' => 'Ya tienes una profesión elegida. Elimina la actual antes de elegir otra.'
-            ], 409);
+            // Upsert: actualizar a la nueva profesión (permite cambiar de objetivo)
+            $existing->update(['profesion_id' => $profesion_id]);
+
+            // Limpiar itinerarios cacheados de la profesión anterior para que se regeneren
+            \App\Models\ItinerarioGenerado::where('user_id', $user->id)->delete();
+
+            return response()->json(['success' => true, 'objetivo' => $existing->fresh()->load('profesion')]);
         }
 
         // Crear el registro de objetivo profesional

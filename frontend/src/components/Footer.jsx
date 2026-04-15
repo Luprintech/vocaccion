@@ -146,8 +146,8 @@ export default function Footer() {
             <ul className="space-y-3">
               <li className="flex items-start gap-3 text-sm text-gray-600">
                 <Mail className="w-4 h-4 mt-0.5 text-purple-500 shrink-0" />
-                <a href="mailto:info@vocaccion.com" className="hover:text-purple-600 transition-colors">
-                  info@vocaccion.com
+                <a href="mailto:info@vocaccion.es" className="hover:text-purple-600 transition-colors">
+                  info@vocaccion.es
                 </a>
               </li>
               <li className="flex items-start gap-3 text-sm text-gray-600">

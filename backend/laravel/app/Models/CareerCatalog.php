@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CareerCatalog extends Model
 {
@@ -65,5 +67,23 @@ class CareerCatalog extends Model
     public function scopeSector($query, string $sector)
     {
         return $query->where('sector', $sector);
+    }
+
+    /**
+     * Cualificaciones profesionales CNCP asociadas a esta profesión
+     */
+    public function qualifications(): BelongsToMany
+    {
+        return $this->belongsToMany(ProfessionalQualification::class, 'career_qualifications')
+            ->withPivot('tipo', 'relevancia', 'observaciones')
+            ->withTimestamps();
+    }
+
+    /**
+     * Ocupaciones CNO-11 que mapean a esta profesión
+     */
+    public function cnoOccupations(): HasMany
+    {
+        return $this->hasMany(CnoOccupation::class);
     }
 }
